@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Construction Khata Book</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{background:#f1f5f9;color:#0f172a;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0}
+.shell{max-width:430px;margin:0 auto;min-height:100vh;position:relative;padding-bottom:84px}
+.bar{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;padding-bottom:env(safe-area-inset-bottom,0px)}
+button{min-height:48px}
+.sheet{animation:up .25s ease-out}@keyframes up{from{transform:translateY(100%)}to{transform:none}}
+::-webkit-scrollbar{display:none}
+</style></head>
+<body><div id="app" class="shell"></div>
+<script>
+const fmt=n=>`₹${Math.abs(n).toLocaleString('en-IN')}`;
+const sites=['Site A - Horizon Towers','Site B - Lakeview Mall','Site C - Riverfront Villas'];
+const cities=['Gandhinagar','Ahmedabad','Surat'];
+const ptypes=['Civil','Electrical','Suppliers','Plumbing','Painting'];
+const cats=['Cement','Steel','Labor Wage','Machinery Rental','Sand & Aggregate','Electrical Material','Plumbing Material','Paint'];
+const today=()=>{const t=new Date();return `${String(t.getDate()).padStart(2,'0')}/${String(t.getMonth()+1).padStart(2,'0')}/${t.getFullYear()}`};
+const sn=i=>i==null?'No site':sites[i].split(' - ')[1],sf=i=>i==null?'No site':sites[i];
+const T=(d,s,t,a,c,p,note='')=>({d,s,t,a,c,p,note});
+const P=[
+{id:1,n:'Ramesh Patel',co:'Patel Civil Works',r:'Contractor',t:'Civil',m:'98250 11122',tx:[T('12/09/2026',null,'gave',80000,'Labor Wage','Bank Transfer','Mobilisation advance'),T('20/09/2026',0,'got',60000,'Cement','Bank Transfer','RA Bill #3'),T('28/09/2026',0,'gave',60000,'Labor Wage','UPI','Week 3 advance'),T('30/09/2026',0,'got',55000,'Cement','Bank Transfer','RA Bill #4'),T('01/10/2026',1,'gave',45000,'Labor Wage','Cash','Lakeview slab crew')]},
+{id:2,n:'Suresh Electricals',co:'Shah Power Co.',r:'Contractor',t:'Electrical',m:'99090 33445',tx:[T('15/09/2026',0,'got',95000,'Electrical Material','Cheque','Panel work bill'),T('22/09/2026',1,'gave',40000,'Electrical Material','UPI','Conduit & wiring advance'),T('29/09/2026',0,'gave',25000,'Machinery Rental','UPI','')]},
+{id:3,n:'Ambuja Traders',co:'Ambuja Cement Dealer',r:'Vendor',t:'Suppliers',m:'97120 55667',tx:[T('10/09/2026',null,'gave',90000,'Cement','Bank Transfer','400 bags'),T('18/09/2026',1,'gave',55000,'Cement','Bank Transfer','250 bags'),T('27/09/2026',0,'got',12000,'Cement','Cash','Damaged bags credit note'),T('02/10/2026',2,'gave',30000,'Cement','UPI','Villa foundation'),T('01/10/2026',1,'got',60000,'Cement','Bank Transfer','Credit note settlement')]},
+{id:4,n:'Kishan Steel',co:'Kishan Metals',r:'Vendor',t:'Suppliers',m:'98980 77889',tx:[T('14/09/2026',0,'gave',120000,'Steel','Bank Transfer','TMT 12mm'),T('26/09/2026',1,'got',15000,'Steel','Cash','Return of TMT bars'),T('02/10/2026',1,'gave',50000,'Steel','UPI',''),T('01/10/2026',0,'got',80000,'Steel','Bank Transfer','Bulk discount adjustment')]},
+{id:5,n:'Mehta Plumbing',co:'Mehta Pipes & Fittings',r:'Contractor',t:'Plumbing',m:'94260 22110',tx:[T('16/09/2026',1,'gave',35000,'Plumbing Material','UPI','Pipes & fittings'),T('24/09/2026',1,'got',75000,'Plumbing Material','Cash','Work bill'),T('01/10/2026',2,'gave',22000,'Labor Wage','UPI','')]},
+{id:6,n:'Rangoli Painters',co:'Rangoli Decor',r:'Contractor',t:'Painting',m:'90990 44556',tx:[T('19/09/2026',2,'gave',28000,'Paint','Cash','Primer coat advance'),T('28/09/2026',2,'got',45000,'Paint','UPI','Bill #1')]},
+{id:7,n:'Gujarat Sand Supply',co:'GSS Aggregates',r:'Vendor',t:'Suppliers',m:'98240 99887',tx:[T('11/09/2026',0,'gave',32000,'Sand & Aggregate','Cash','10 trucks'),T('21/09/2026',2,'gave',27000,'Sand & Aggregate','UPI','8 trucks'),T('30/09/2026',0,'got',5000,'Sand & Aggregate','Cash','Short delivery refund'),T('02/10/2026',2,'got',70000,'Sand & Aggregate','Bank Transfer','Advance adjustment')]},
+{id:8,n:'Bharat Machinery',co:'Bharat Equipment Rentals',r:'Vendor',t:'Civil',m:'93270 66778',tx:[T('13/09/2026',0,'gave',48000,'Machinery Rental','Bank Transfer','Excavator, 12 days'),T('25/09/2026',1,'gave',36000,'Machinery Rental','Cheque','Concrete mixer'),T('01/10/2026',1,'got',9000,'Machinery Rental','UPI','Early return rebate')]},
+{id:9,n:'Dinesh Mistry',co:'Dinesh Masonry Team',r:'Contractor',t:'Civil',m:'97370 12345',tx:[T('17/09/2026',2,'gave',40000,'Labor Wage','Cash','Block work advance'),T('29/09/2026',2,'got',62000,'Labor Wage','Bank Transfer','Measured work bill')]},
+{id:10,n:'Prime Electrical Mart',co:'Prime Traders',r:'Vendor',t:'Electrical',m:'99250 87654',tx:[T('23/09/2026',1,'gave',21000,'Electrical Material','UPI','Switches & cables'),T('02/10/2026',1,'got',38000,'Electrical Material','Cash','Return of cables')]}];
+const exp=[
+{d:'14/09/2026',s:0,a:15000,c:'Machinery Rental',note:'JCB hire'},{d:'18/09/2026',s:1,a:6500,c:'Labor Wage',note:'Site canteen'},
+{d:'22/09/2026',s:2,a:9800,c:'Sand & Aggregate',note:'Unloading charges'},{d:'25/09/2026',s:0,a:4200,c:'Paint',note:'Marking paint & brushes'},
+{d:'27/09/2026',s:1,a:12500,c:'Electrical Material',note:'Temporary site lighting'},{d:'29/09/2026',s:2,a:7300,c:'Labor Wage',note:'Overtime snacks & tea'},
+{d:'30/09/2026',s:0,a:11800,c:'Machinery Rental',note:'Diesel for DG set'},{d:'01/10/2026',s:1,a:8000,c:'Labor Wage',note:'Safety gear for crew'},
+{d:'02/10/2026',s:2,a:5600,c:'Plumbing Material',note:'Water tanker'}];
+const STAFF=['Rajesh Shah','Amit Verma','Karan Desai','Priya Nair'];
+P.forEach(p=>p.tx.forEach((x,i)=>{const k=(p.id*7+i*5)%6;x.by=k<3?STAFF[0]:STAFF[k-2]}));
+exp.forEach((e,i)=>{const k=(i*5+2)%6;e.by=k<3?STAFF[0]:STAFF[k-2]});
+const S={scr:'login',tab:'home',site:-1,pick:0,ap:null,delc:null,pk:null,fk:null,dm:'any',d1:'',d2:'',allu:false,lf:'All',edet:null,det:null,menu:0,role:'Admin',name:'Rajesh Shah',sort:'az',sortOpen:0,add:null,notif:true,pid:null,scope:-1,f:'All',q:'',sheet:null,sf:'All Activity',users:[{n:'Rajesh Shah',m:'+91 98765 43210',r:'Admin',on:true,acc:[0,1,2]},{n:'Amit Verma',m:'+91 90000 12345',r:'Regular',on:true,acc:[0]},{n:'Neha Joshi',m:'+91 91111 22222',r:'Regular',on:false,acc:[]},{n:'Karan Desai',m:'+91 98989 45454',r:'Regular',on:true,acc:[1,2]},{n:'Ramesh Patel',m:'+91 98250 11122',r:'Regular',on:true,acc:[0,1]},{n:'Mehta Plumbing',m:'+91 94260 22110',r:'Regular',on:true,acc:[1,2]},{n:'Priya Nair',m:'+91 97979 67676',r:'Regular',on:true,acc:[2]}]};
+const sc=p=>p.tx.filter(x=>S.site<0||x.s===S.site);
+const nets=p=>sc(p).reduce((a,x)=>a+(x.t==='gave'?x.a:-x.a),0);
+const _net=p=>p.tx.reduce((a,x)=>a+(x.t==='gave'?x.a:-x.a),0);
+const _sum=(p,t)=>p.tx.filter(x=>x.t===t).reduce((a,x)=>a+x.a,0);
+const pill=(l,on,fn)=>`<button onclick="${fn}" class="px-4 rounded-full text-sm font-semibold whitespace-nowrap ${on?'bg-amber-500 text-slate-950':'bg-white border border-slate-200 text-slate-600'}" style="min-height:40px">${l}</button>`;
+const card='bg-white shadow-sm border border-slate-200 rounded-2xl';
+const bal=n=>n>=0?`<span class="px-3 py-1 rounded-full text-sm font-bold bg-emerald-500/15 text-emerald-600">${fmt(n)} Credit</span>`:`<span class="px-3 py-1 rounded-full text-sm font-bold bg-red-500/15 text-red-600">${fmt(n)} Debit</span>`;
+
+function login(){return `<div class="p-6 flex flex-col justify-center min-h-screen gap-6">
+<div class="text-center"><div class="w-16 h-16 mx-auto rounded-2xl bg-amber-500 text-slate-950 grid place-items-center text-3xl">🏗️</div>
+<h1 class="text-2xl font-extrabold mt-4">Construction Ledger</h1><p class="text-slate-500 text-sm">Multi-site Khata Book</p></div>
+<div class="space-y-3">
+<div class="flex gap-2"><div class="${card} px-4 grid place-items-center font-semibold" style="min-height:56px">🇮🇳 +91</div>
+<input inputmode="numeric" placeholder="Mobile number" class="flex-1 ${card} px-4 text-lg outline-none focus:border-amber-500" style="min-height:56px"></div>
+<div class="relative"><input id="pw" type="password" placeholder="Password" class="w-full ${card} px-4 text-lg outline-none focus:border-amber-500" style="min-height:56px">
+<button onclick="pw.type=pw.type=='password'?'text':'password'" class="absolute right-2 top-1 w-12 text-xl" aria-label="Toggle password">👁</button></div></div>
+<button onclick="go('app')" class="w-full rounded-2xl bg-amber-500 text-slate-950 font-extrabold text-lg" style="min-height:56px">Login to Khata Book →</button>
+<div class="flex gap-2 justify-center"><button onclick="signIn('Admin')" class="px-4 rounded-full border border-slate-300 text-sm">Login as Admin</button><button onclick="signIn('Supervisor')" class="px-4 rounded-full border border-slate-300 text-sm">Login as Supervisor</button></div></div>`}
+
+function header(){return `<div class="sticky top-0 z-30 bg-white/95 backdrop-blur px-4 pt-3 pb-2 flex items-center justify-between gap-2">
+<button onclick="S.pick=1;rd()" class="px-4 rounded-full ${card} text-sm font-semibold text-amber-600 truncate" style="min-height:44px">📍 ${S.site<0?'All Sites':sites[S.site]} ▾</button>
+<div onclick="S.tab='profile';rd()" class="flex items-center gap-2 px-3 rounded-full ${card} cursor-pointer" style="min-height:44px"><span class="w-7 h-7 rounded-full bg-amber-500 text-slate-950 grid place-items-center text-xs font-bold">${S.name[0]}</span><span class="text-xs font-bold text-slate-700">${S.name.split(' ')[0]}</span></div></div>`}
+
+function home(){
+ const give=P.reduce((a,p)=>a+Math.max(nets(p),0),0),get=P.reduce((a,p)=>a+Math.max(-nets(p),0),0);
+ const list=P.filter(p=>(S.site<0||sc(p).length)&&(S.f==='All'||p.t===S.f)&&(p.n.toLowerCase().includes(S.q.toLowerCase())||p.m.includes(S.q))).sort(srt);
+ return `${header()}<div class="px-4 space-y-4 pt-2">
+<div class="grid grid-cols-2 rounded-2xl overflow-hidden border border-slate-200 shadow-md bg-white">
+<div class="p-4 bg-emerald-500/10"><p class="text-[11px] font-bold tracking-wider text-emerald-600">CREDIT</p><p class="text-2xl font-extrabold text-emerald-600 mt-1">${fmt(give)}</p></div>
+<div class="p-4 bg-red-500/10"><p class="text-[11px] font-bold tracking-wider text-red-600">DEBIT</p><p class="text-2xl font-extrabold text-red-600 mt-1">${fmt(get)}</p></div></div>
+<input value="${S.q}" oninput="S.q=this.value;rd(1)" placeholder="🔍 Search name or mobile" class="w-full ${card} px-4 outline-none focus:border-amber-500" style="min-height:52px">
+<div class="flex gap-2 overflow-x-auto"><button onclick="S.sortOpen=1;rd()" class="px-3 rounded-full border text-sm font-semibold whitespace-nowrap shrink-0 ${S.sort==='az'?'bg-white border-slate-200 text-slate-600':'bg-amber-500 border-amber-500 text-slate-950'}" style="min-height:40px">⇅ Sort</button>${['All',...ptypes].map(c=>pill(c,S.f===c,`S.f='${c}';rd()`)).join('')}</div>
+<div class="space-y-3">${list.map(p=>`<button onclick="S.pid=${p.id};S.scope=S.site;go('ledger')" class="w-full text-left ${card} p-4 flex items-center gap-3">
+<span class="w-12 h-12 rounded-full bg-slate-100 grid place-items-center font-bold text-amber-600">${p.n[0]}</span>
+<span class="flex-1 min-w-0"><span class="block font-bold truncate">${p.n}</span><span class="block text-xs text-slate-500 truncate">${p.co}</span>
+<span class="inline-block mt-1 text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-700 font-bold uppercase">${p.r}</span></span>
+<span class="text-right">${bal(nets(p))}<span class="block text-slate-400 mt-1">›</span></span></button>`).join('')||'<p class="text-center text-slate-400 py-8">No contractors found</p>'}</div></div>`}
+
+function ledger(){
+ const p=P.find(x=>x.id===S.pid);const tx=p.tx.filter(x=>(S.scope<0||x.s===S.scope)&&((S.role==='Admin'&&S.allu)||x.by===S.name)&&inR(F.pass,x.d)).sort((a,b)=>dv(b.d)-dv(a.d)||p.tx.indexOf(b)-p.tx.indexOf(a));
+ const g=tx.filter(x=>x.t==='gave').reduce((a,x)=>a+x.a,0),r=tx.filter(x=>x.t==='got').reduce((a,x)=>a+x.a,0),n=g-r;
+ return `<div class="sticky top-0 z-30 bg-white/95 backdrop-blur px-3 py-2 flex items-center gap-2">
+<button onclick="go('app')" class="w-12 text-2xl" aria-label="Back">←</button>
+<div class="flex-1 min-w-0"><p class="font-bold truncate">${p.n}</p><p class="text-xs text-slate-500">+91 ${p.m}</p></div>
+${S.role==='Admin'&&linkU(p)>=0?`<button onclick="S.tab='admin';S.ap='u:${linkU(p)}';go('app')" class="px-3 rounded-full border border-slate-300 text-xs font-bold" style="min-height:40px">🔑</button>`:''}${pdfBtn('pdfPerson')}<button onclick="alert('Statement shared on WhatsApp (demo)')" class="px-3 rounded-full bg-emerald-500 text-slate-950 text-xs font-bold">💬</button></div>
+<div class="px-4 space-y-4 pt-2 pb-28">
+<div class="flex gap-2 overflow-x-auto">${pill('All Sites (Aggregated)',S.scope<0,'S.scope=-1;rd()')}${sites.map((s,i)=>pill(s.split(' - ')[1],S.scope===i,`S.scope=${i};rd()`)).join('')}</div>
+<div class="flex gap-2 items-stretch">${allBox('transactions')}${fbtn('pass')}</div>
+<div class="${card} p-3 text-center"><p class="text-[11px] text-slate-500 font-semibold">NET BALANCE</p>
+<p class="text-2xl font-extrabold ${n>=0?'text-emerald-600':'text-red-600'}">${fmt(n)}</p>
+<p class="text-xs font-semibold ${n>=0?'text-emerald-600':'text-red-600'}">${n>=0?'Receivable':'Payable'}</p>
+<div class="grid grid-cols-2 mt-2 pt-2 border-t border-slate-200 text-xs"><div><p class="text-slate-500 text-xs">Total Credit</p><p class="font-bold text-emerald-600">${fmt(g)}</p></div><div><p class="text-slate-500 text-xs">Total Debit</p><p class="font-bold text-red-600">${fmt(r)}</p></div></div></div>
+<div class="space-y-3">${tx.map(x=>`<button onclick="S.det={pid:${p.id},i:${p.tx.indexOf(x)}};rd()" class="w-full flex ${x.t==='gave'?'justify-start':'justify-end'} text-left"><span class="block min-w-[55%] max-w-[80%] rounded-2xl p-3 border ${x.t==='gave'?'bg-emerald-500/10 border-emerald-500/30':'bg-red-500/10 border-red-500/30'}"><span class="block text-xl font-extrabold ${x.t==='gave'?'text-emerald-600':'text-red-600'}">${x.t==='gave'?'+':'−'} ${fmt(x.a)}</span><span class="block text-[11px] text-slate-500 mt-1">${x.d} · ${sn(x.s)}${S.role==='Admin'&&S.allu?` · by ${x.by===S.name?'You':x.by}`:''}</span></span></button>`).join('')||'<p class="text-center text-slate-500 py-8 text-sm">No entries here.</p>'}</div></div>
+<div class="bar z-40 grid grid-cols-2 gap-2 p-3 bg-white/95 border-t border-slate-200">
+<button onclick="openSheet('gave')" class="rounded-xl bg-emerald-500 text-slate-950 font-extrabold" style="min-height:52px">+ CREDIT</button>
+<button onclick="openSheet('got')" class="rounded-xl bg-red-500 text-white font-extrabold" style="min-height:52px">− DEBIT</button></div>`}
+
+const MO={Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+const iso=d=>`${d.slice(6)}-${d.slice(3,5)}-${d.slice(0,2)}`;
+const dstr=a=>a[0]&&a[1]&&a[2]?a.join('/'):'';
+const nd=()=>({dm:'any',d1:['','',''],d2:['','','']});
+const F={site:{t:'All Activity',...nd()},ledgers:{t:'All',...nd()},exp:nd(),pass:nd()};
+const inR=(f,d)=>{if(f.dm==='any')return true;const i=iso(d),a=dstr(f.d1)?iso(dstr(f.d1)):'',b=dstr(f.d2)?iso(dstr(f.d2)):'';if(f.dm==='day')return !a||i===a;return (!a||i>=a)&&(!b||i<=b)};
+const hasT=f=>f.t&&f.t!=='All'&&f.t!=='All Activity';
+const hasD=f=>f.dm!=='any'&&(dstr(f.d1)||dstr(f.d2));
+const nAct=f=>(hasT(f)?1:0)+(hasD(f)?1:0);
+
+const fsum=f=>{const p=[];if(hasT(f))p.push(f.t);const a=dstr(f.d1),b=dstr(f.d2);if(f.dm==='day'&&a)p.push(a);if(f.dm==='range'&&(a||b))p.push(`${a||'…'} → ${b||'…'}`);return p.length?` · ${p.join(' · ')}`:''};
+const fbtn=k=>`<button onclick="S.fk='${k}';rd()" class="ml-auto shrink-0 px-4 rounded-2xl flex items-center border text-sm font-semibold ${nAct(F[k])?'bg-amber-500 border-amber-500 text-slate-950':'bg-white border-slate-200 text-slate-600'}" style="min-height:52px">⚙ Filter${nAct(F[k])?` · ${nAct(F[k])}`:''}</button>`;
+const seg=(arr,cur,fn)=>`<div class="grid gap-1 p-1 bg-slate-100 rounded-xl" style="grid-template-columns:repeat(${arr.length},1fr)">${arr.map(([k,l])=>`<button onclick="${fn}('${k}')" class="rounded-lg text-xs font-bold ${cur===k?'bg-amber-500 text-slate-950 shadow-sm':'text-slate-500'}" style="min-height:40px">${l}</button>`).join('')}</div>`;
+function _fT(v){F[S.fk].t=v;rd()}
+function _fD(v){const f=F[S.fk];f.dm=v;if(v==='any'){f.d1=['','',''];f.d2=['','','']}rd()}
+function _fClear(){const f=F[S.fk];f.dm='any';f.d1=['','',''];f.d2=['','',''];if('t' in f)f.t=S.fk==='site'?'All Activity':'All';rd()}
+const DAYS=Array.from({length:31},(_,i)=>{const v=String(i+1).padStart(2,'0');return[v,v]});
+const MONS=Object.keys(MO).map((m,i)=>[String(i+1).padStart(2,'0'),m]);
+const YRS=[2024,2025,2026,2027].map(y=>[String(y),String(y)]);
+const dOpt=(arr,cur,ph)=>`<option value="">${ph}</option>${arr.map(([v,l])=>`<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('')}`;
+function fsetV(){const k=S.fk;if(!k)return'';const f=F[k];
+ const T={site:[['All Activity','All Activity'],['Ledgers Only','Ledgers Only'],['Expenses Only','Expenses Only']],ledgers:[['All','All'],['Credit','Credit'],['Debit','Debit']]}[k];
+ const di=(p,l)=>`<div><span class="text-[11px] font-semibold text-slate-500">${l}</span><div class="grid grid-cols-3 gap-2 mt-1">${[[DAYS,'DD'],[MONS,'MM'],[YRS,'YYYY']].map(([arr,ph],n)=>`<select onchange="F['${k}'].${p}[${n}]=this.value;rd()" class="w-full ${card} px-2 text-sm outline-none" style="min-height:44px">${dOpt(arr,f[p][n],ph)}</select>`).join('')}</div></div>`;
+ const dates=f.dm==='day'?di('d1','Date'):f.dm==='range'?`<div class="space-y-2">${di('d1','From date')}${di('d2','To date')}</div>`:'';
+ return `<div class="fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center" onclick="if(event.target===this){S.fk=null;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 space-y-4 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))"><button onclick="S.fk=null;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button><p class="font-extrabold text-lg">Filters</p>
+${T?`<div class="space-y-1"><p class="text-[11px] font-bold text-slate-500 tracking-wider">TYPE</p>${seg(T,f.t,'fT')}</div>`:''}
+<div class="space-y-2"><p class="text-[11px] font-bold text-slate-500 tracking-wider">DATE</p>${seg([['any','Any date'],['day','Exact date'],['range','Date range']],f.dm,'fD')}${dates}</div>
+<div class="grid grid-cols-2 gap-2 pt-1"><button onclick="fClear()" class="rounded-2xl border border-slate-300 font-bold" style="min-height:52px">Clear all</button><button onclick="S.fk=null;rd()" class="rounded-2xl bg-amber-500 text-slate-950 font-extrabold" style="min-height:52px">Done</button></div></div></div>`}
+function sitesV(){
+ if(S.site<0)return `${header()}<div class="px-4 pt-6 space-y-3"><h2 class="text-xl font-extrabold">Pick a site</h2><p class="text-sm text-slate-500">Choose a project to see its ledger and expense entries.</p>${sites.map((x,i)=>`<button onclick="S.site=${i};rd()" class="w-full text-left ${card} p-4 flex items-center justify-between"><span><span class="block font-bold">${x.split(' - ')[1]}</span><span class="block text-xs text-slate-500">${x.split(' - ')[0]} · ${cities[i]||''}</span></span><span class="text-slate-400 text-xl">›</span></button>`).join('')}</div>`;
+ const f=F.site,all=S.role==='Admin'&&S.allu,ok=y=>(all||y.by===S.name)&&inR(f,y.d);
+ const L=P.flatMap(p=>p.tx.map((x,i)=>({k:'L',p,i,x,d:x.d,a:x.a}))).filter(o=>o.x.s===S.site&&ok(o.x));
+ const E=exp.map((e,i)=>({k:'E',e,i,d:e.d,a:e.a})).filter(o=>o.e.s===S.site&&ok(o.e));
+ const out=L.filter(o=>o.x.t==='gave').reduce((a,o)=>a+o.a,0)+E.reduce((a,o)=>a+o.a,0);
+ const feed=[...L,...E].filter(o=>f.t==='All Activity'||(f.t==='Ledgers Only'?o.k==='L':o.k==='E')).sort((a,b)=>dv(b.d)-dv(a.d)||b.i-a.i);
+ const by=y=>all?` · ${y.by===S.name?'You':y.by.split(' ')[0]}`:'';
+ return `${header()}<div class="px-4 space-y-3 pt-2">
+<div class="rounded-2xl p-4 bg-gradient-to-br from-amber-500/20 to-white border border-amber-500/30">
+<div class="flex justify-between items-start"><div><p class="font-extrabold text-lg">${sites[S.site].split(' - ')[1]}</p><p class="text-xs text-slate-500">${cities[S.site]||''}</p></div><span class="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-600 text-xs font-bold">Active</span></div>
+<p class="text-xs text-slate-500 mt-3 font-semibold">TOTAL SITE OUTFLOW${hasD(f)?' · SELECTED DATES':''}</p><p class="text-2xl font-extrabold text-amber-600">${fmt(out)}</p></div>
+<div class="flex gap-2 items-stretch">${allBox('transactions')}${fbtn('site')}</div>
+<div class="flex items-center justify-between gap-2"><p class="text-xs font-semibold text-slate-500 px-1">${feed.length} ${feed.length===1?'entry':'entries'}${fsum(f)}</p>${pdfBtn('pdfSite')}</div>
+<div class="space-y-2">${feed.map(o=>o.k==='L'?`<button onclick="S.det={pid:${o.p.id},i:${o.i}};rd()" class="w-full text-left ${card} p-3 flex items-center justify-between"><span><span class="block font-bold text-sm">${o.p.n}</span><span class="block text-xs text-slate-500">${o.x.d} · ${o.x.c}${by(o.x)}</span></span><span class="font-extrabold ${o.x.t==='gave'?'text-emerald-600':'text-red-600'}">${o.x.t==='gave'?'+':'−'} ${fmt(o.a)}</span></button>`:`<button onclick="S.edet=${o.i};rd()" class="w-full text-left ${card} p-3 flex items-center justify-between"><span><span class="block font-bold text-sm">${o.e.note} <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-600 align-middle">EXPENSE</span></span><span class="block text-xs text-slate-500">${o.e.d} · ${o.e.c}${by(o.e)}</span></span><span class="font-extrabold text-indigo-600">${fmt(o.a)}</span></button>`).join('')||'<p class="text-center text-slate-500 py-8 text-sm">No entries match these filters.</p>'}</div></div>`}
+function exps(){const all=S.role==='Admin'&&S.allu,list=exp.map((e,i)=>({e,i})).filter(o=>(S.site<0||o.e.s===S.site)&&(all||o.e.by===S.name)&&inR(F.exp,o.e.d)).sort((a,b)=>dv(b.e.d)-dv(a.e.d)||b.i-a.i);
+return `${header()}<div class="px-4 pt-2 space-y-3"><div class="flex items-center justify-between"><h2 class="text-xl font-extrabold">Direct Expenses</h2>${pdfBtn('pdfExp')}</div><div class="flex gap-2 items-stretch">${allBox('expenses')}${fbtn('exp')}</div>
+<p class="text-xs font-semibold text-slate-500 px-1">${list.length} ${list.length===1?'expense':'expenses'}${fsum(F.exp)}</p>
+${list.map(({e,i})=>`<button onclick="S.edet=${i};rd()" class="w-full text-left ${card} p-4 flex justify-between items-center"><span><span class="block font-bold">${e.note}</span><span class="block text-xs text-slate-500">${e.c} · ${sites[e.s].split(' - ')[1]} · ${e.d}${all?` · by ${e.by===S.name?'You':e.by.split(' ')[0]}`:''}</span></span><span class="font-extrabold text-indigo-600">${fmt(e.a)}</span></button>`).join('')||'<p class="text-center text-slate-500 py-8 text-sm">No expenses match.</p>'}</div>`}
+function _catV(){
+ const rows=cats.map(c=>({c,a:P.flatMap(p=>p.tx).filter(x=>x.t==='gave'&&x.c===c&&(S.scope<0||x.s===S.scope)).reduce((a,x)=>a+x.a,0)+exp.filter(e=>e.c===c&&(S.scope<0||e.s===S.scope)).reduce((a,e)=>a+e.a,0)}));
+ const tot=rows.reduce((a,r)=>a+r.a,0)||1;
+ return `<div class="px-4 pt-4 space-y-4"><div class="flex gap-2 overflow-x-auto">${pill('All Sites',S.scope<0,'S.scope=-1;rd()')}${sites.map((s,i)=>pill(s.split(' - ')[1],S.scope===i,`S.scope=${i};rd()`)).join('')}</div>
+<div class="${card} p-5"><p class="text-xs text-slate-500 font-semibold">TOTAL EXPENDITURE</p><p class="text-3xl font-extrabold text-amber-600">${fmt(tot===1&&!rows[0].a?0:tot)}</p></div>
+${rows.map(r=>`<div class="${card} p-4"><div class="flex justify-between text-sm font-bold"><span>${r.c}</span><span>${fmt(r.a)} · ${Math.round(r.a/tot*100)}%</span></div><div class="h-3 rounded-full bg-slate-100 mt-2 overflow-hidden"><div class="h-full bg-indigo-500 rounded-full" style="width:${r.a/tot*100}%"></div></div></div>`).join('')}</div>`}
+
+const digits=x=>x.replace(/\D/g,'');
+const linkU=p=>S.users.findIndex(u=>digits(u.m).endsWith(digits(p.m)));
+const linkP=u=>P.find(p=>digits(u.m).endsWith(digits(p.m)));
+const fld=(l,v,t,f,k)=>`<button onclick="openPk('${t}','${f}','${k}')" class="w-full ${card} px-4 flex items-center justify-between text-left" style="min-height:56px"><span><span class="block text-[11px] text-slate-500">${l}</span><span class="block font-semibold">${v||'Select'}</span></span><span class="text-slate-400 text-xl">›</span></button>`;
+const sLab=s=>s==null||s<0?'No site':sites[s];
+const _sitePills=(t,cur,none)=>`<div class="space-y-1"><p class="text-[11px] font-bold text-slate-500 tracking-wider">SITE</p><div class="flex gap-2 flex-wrap">${[...(none?[-1]:[]),...sites.keys()].map(i=>pill(i<0?'No site':sites[i].split(' - ')[1],cur===i,`setF('${t}','s',${i})`)).join('')}</div></div>`;
+function _setF(t,f,v){(t==='add'?S.add:S.sheet)[f]=v;rd()}
+function _openPk(t,f,k){S.pk={t,f,k,q:''};rd()}
+function _pickSet(i){const p=S.pk,o=p.opts[i];(p.t==='add'?S.add:S.sheet)[p.f]=o[0];S.pk=null;rd()}
+function pickerV(){const p=S.pk;if(!p)return'';
+ const all=(p.k==='cat'?cats.map(c=>[c,c]):p.k==='ptype'?ptypes.map(c=>[c,c]):p.k==='site'?sites.map((x,i)=>[i,x]):p.k==='siten'?[[-1,'No site'],...sites.map((x,i)=>[i,x])]:[...P].sort((a,b)=>a.n.localeCompare(b.n)).map(x=>[x.id,`${x.n} · ${x.co}`])).map((o,i)=>[...o,i]);
+ p.opts=all;const cur=(p.t==='add'?S.add:S.sheet)[p.f],q=p.q.toLowerCase(),l=all.filter(o=>String(o[1]).toLowerCase().includes(q));
+ const H={cat:'Select category',ptype:'Select person type',site:'Select site',siten:'Select site',person:'Select person'}[p.k];
+ return `<div class="fixed inset-0 flex items-end justify-center bg-slate-900/50" style="z-index:60" onclick="if(event.target===this){S.pk=null;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 flex flex-col gap-3" style="height:80vh"><button onclick="S.pk=null;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button><p class="font-extrabold text-lg">${H}</p><input id="pks" value="${p.q}" oninput="S.pk.q=this.value;rd(3)" placeholder="🔍 Search" class="w-full ${card} px-4 outline-none focus:border-amber-500" style="min-height:48px"><div class="flex-1 overflow-y-auto space-y-2">${l.map(o=>`<button onclick="pickSet(${o[2]})" class="w-full flex items-center justify-between px-4 rounded-2xl border text-left ${cur===o[0]?'border-amber-500 bg-amber-50':'border-slate-200'}" style="min-height:52px"><span class="font-semibold text-sm">${o[1]}</span><span class="text-amber-600 font-bold">${cur===o[0]?'✓':''}</span></button>`).join('')||'<p class="text-center text-slate-500 py-6 text-sm">No matches</p>'}</div></div></div>`}
+const acts=(by,key,ed,del)=>(S.role==='Admin'||by===S.name)?(S.delc===key?`<p class="text-sm text-center text-red-600 font-semibold mt-4">Delete this entry?</p><div class="grid grid-cols-2 gap-2 mt-2"><button onclick="S.delc=null;rd()" class="rounded-2xl border border-slate-300 font-bold" style="min-height:48px">Cancel</button><button onclick="${del}()" class="rounded-2xl bg-red-500 text-white font-bold" style="min-height:48px">Yes, delete</button></div>`:`<div class="grid grid-cols-2 gap-2 mt-4"><button onclick="${ed}()" class="rounded-2xl border border-amber-500 text-amber-700 font-bold" style="min-height:48px">✏️ Edit</button><button onclick="S.delc='${key}';rd()" class="rounded-2xl border border-red-300 text-red-600 font-bold" style="min-height:48px">🗑 Delete</button></div>`):'';
+function _editL(){const d=S.det,x=P.find(p=>p.id===d.pid).tx[d.i];S.add={k:'ledger',ed:{pid:d.pid,i:d.i},pid:d.pid,t:x.t,a:x.a,s:x.s==null?-1:x.s,c:x.c,p:x.p,note:x.note};S.det=null;S.delc=null;rd()}
+function _delL(){const d=S.det;P.find(x=>x.id===d.pid).tx.splice(d.i,1);S.det=null;S.delc=null;rd()}
+function _editE(){const i=S.edet,e=exp[i];S.add={k:'exp',ed:i,a:e.a,s:e.s,c:e.c,note:e.note};S.edet=null;S.delc=null;rd()}
+function _delE(){exp.splice(S.edet,1);S.edet=null;S.delc=null;rd()}
+const abk=(t,to)=>`<div class="flex items-center gap-1 pt-1"><button onclick="S.ap=${to}000;rd()" class="w-12 text-2xl" aria-label="Back">←</button><h2 class="text-xl font-extrabold truncate">${t}</h2></div>`.replace('000','');
+const tog=i=>`<button onclick="S.users[${i}].on=!S.users[${i}].on;rd()" class="shrink-0 w-14 h-8 rounded-full relative ${S.users[i].on?'bg-emerald-500':'bg-slate-300'}" style="min-height:32px" aria-label="Toggle user"><span class="absolute top-1 w-6 h-6 rounded-full bg-white transition-all ${S.users[i].on?'left-7':'left-1'}"></span></button>`;
+const rb=u=>`<span class="inline-block mt-1 text-[10px] px-2 py-0.5 rounded font-bold ${u.r==='Admin'?'bg-amber-500/20 text-amber-700':'bg-slate-100 text-slate-600'}">${u.r.toUpperCase()}</span>`;
+function adm(){const a=S.ap;
+ if(a==='users')return `<div class="px-4 space-y-3">${abk('Users','null')}${S.users.map((u,i)=>`<div class="${card} p-4 flex items-center gap-3"><button onclick="S.ap='u:${i}';rd()" class="flex-1 min-w-0 text-left"><p class="font-bold">${u.n} <span class="text-slate-400">›</span></p><p class="text-xs text-slate-500">${u.m}</p>${rb(u)}</button>${tog(i)}</div>`).join('')}</div>`;
+ if(a?.startsWith('u:')){const i=+a.slice(2),u=S.users[i],lp=linkP(u);return `<div class="px-4 space-y-4">${abk(u.n,"'users'")}<div class="${card} p-4 flex items-center justify-between"><div><p class="font-bold">${u.n}</p><p class="text-xs text-slate-500">${u.m}</p>${rb(u)}</div>${tog(i)}</div>
+${lp?`<button onclick="S.pid=${lp.id};S.scope=S.site;go('ledger')" class="w-full text-left ${card} p-4 flex items-center justify-between"><span><span class="block text-[11px] text-slate-500">ALSO A PERSON</span><span class="block font-semibold">${lp.n} · ${lp.co}</span></span><span class="text-slate-400 text-xl">›</span></button>`:''}
+<div class="${card} p-4 space-y-3"><p class="font-bold">Site access</p>${u.r==='Admin'?'<p class="text-sm text-slate-500">Admins can access all sites.</p>':`<div class="flex gap-2 flex-wrap">${sites.map((x,j)=>{const on=u.acc.includes(j);return `<button onclick="let a=S.users[${i}].acc,k=a.indexOf(${j});k<0?a.push(${j}):a.splice(k,1);rd()" class="px-4 rounded-full text-sm font-semibold ${on?'bg-amber-500 text-slate-950':'bg-slate-100 text-slate-500'}" style="min-height:44px">${on?'✓ ':''}${x.split(' - ')[1]}</button>`}).join('')}</div>`}</div></div>`}
+ if(a==='cats'){const chips=arr=>`<div class="flex gap-2 flex-wrap">${arr.map(c=>`<span class="px-3 py-2 rounded-full bg-slate-100 text-sm font-semibold">${c}</span>`).join('')}</div>`;
+  return `<div class="px-4 space-y-4">${abk('Categories Master','null')}<div class="${card} p-4 space-y-3"><div class="flex items-center justify-between"><p class="font-bold">Categories (${cats.length})</p><button onclick="openAdd('cat')" class="px-4 rounded-full bg-amber-500 text-slate-950 text-sm font-bold" style="min-height:40px">+ Add</button></div>${chips(cats)}</div><div class="${card} p-4 space-y-3"><div class="flex items-center justify-between"><p class="font-bold">Person types (${ptypes.length})</p><button onclick="openAdd('ptype')" class="px-4 rounded-full bg-amber-500 text-slate-950 text-sm font-bold" style="min-height:40px">+ Add</button></div>${chips(ptypes)}</div></div>`}
+ const hub=(i,t,sub,to)=>`<button onclick="S.ap='${to}';rd()" class="w-full text-left ${card} p-4 flex items-center gap-3"><span class="w-12 h-12 rounded-xl bg-amber-50 grid place-items-center text-2xl">${i}</span><span class="flex-1"><span class="block font-bold">${t}</span><span class="block text-xs text-slate-500">${sub}</span></span><span class="text-slate-400 text-xl">›</span></button>`;
+ return `<div class="px-4 pt-4 space-y-3"><h2 class="text-xl font-extrabold">Admin Control Center</h2>${hub('👥','Users',`${S.users.length} accounts · ${S.users.filter(u=>u.on).length} active`,'users')}${hub('🏷️','Categories Master',`${cats.length} categories · ${ptypes.length} person types`,'cats')}</div>`}
+function pickV(){if(!S.pick)return'';return `<div class="fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center" onclick="if(event.target===this){S.pick=0;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 space-y-2" style="padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))"><button onclick="S.pick=0;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button><p class="font-extrabold text-lg pb-1">Select Site</p>${[-1,...sites.keys()].map(i=>`<button onclick="S.site=${i};S.pick=0;rd()" class="w-full flex items-center justify-between px-4 rounded-2xl border ${S.site===i?'border-amber-500 bg-amber-50':'border-slate-200'}" style="min-height:56px"><span class="font-semibold">${i<0?'🏗️ All Sites':`📍 ${sites[i]}`}</span><span class="text-amber-600 font-bold">${S.site===i?'✓':''}</span></button>`).join('')}</div></div>`}
+function prof(){const n=P.reduce((a,p)=>a+p.tx.length,0);
+const row=(i,l,x='')=>`<button class="w-full flex items-center gap-3 px-4 text-left" style="min-height:56px"><span class="w-9 h-9 rounded-xl bg-amber-50 grid place-items-center">${i}</span><span class="flex-1 font-semibold text-sm">${l}</span>${x||'<span class="text-slate-400">›</span>'}</button>`;
+return `<div class="rounded-b-3xl bg-gradient-to-br from-amber-400 to-amber-600 px-3 pt-3 pb-8 text-slate-950 shadow-md flex items-center gap-2"><button onclick="S.tab='home';rd()" class="w-10 text-2xl shrink-0" aria-label="Back">←</button><div class="w-12 h-12 rounded-full bg-white grid place-items-center text-xl font-extrabold text-amber-600 shadow shrink-0">${S.name[0]}</div><div class="min-w-0"><h2 class="text-lg font-extrabold leading-tight truncate">${S.name}</h2><p class="text-xs font-medium">+91 98765 43210 · <span class="font-bold">${S.role.toUpperCase()}</span></p></div></div>
+<div class="px-4 -mt-5 space-y-4"><div class="grid grid-cols-3 ${card} shadow-md text-center py-4">
+${[[sites.length,'Sites'],[P.length,'Contractors'],[n,'Entries']].map(([a,b])=>`<div><p class="text-xl font-extrabold text-amber-600">${a}</p><p class="text-xs text-slate-500">${b}</p></div>`).join('')}</div>
+<div class="${card} divide-y divide-slate-200 overflow-hidden">${row('✏️','Edit profile')}${row('🔔','Notifications',`<span onclick="S.notif=!S.notif;rd()" class="w-12 h-7 rounded-full relative ${S.notif?'bg-emerald-500':'bg-slate-300'}"><span class="absolute top-1 w-5 h-5 rounded-full bg-white transition-all ${S.notif?'left-6':'left-1'}"></span></span>`)}${row('🌐','Language','<span class="text-xs text-slate-500">English ›</span>')}${row('🔒','Change password')}${row('💬','Help & support')}</div>
+<button onclick="S.tab='home';go('login')" class="w-full rounded-2xl bg-red-50 text-red-600 font-extrabold border border-red-200" style="min-height:52px">Log out</button>
+<p class="text-center text-xs text-slate-400">Construction Ledger v1.0</p></div>`}
+function fab(){if(S.tab==='profile')return'';
+return `<div class="bar z-40 pointer-events-none" style="bottom:calc(68px + env(safe-area-inset-bottom,0px));padding-bottom:0"><div class="flex justify-end pr-4"><button onclick="S.menu=1;rd()" aria-label="Add" class="pointer-events-auto w-14 h-14 rounded-full bg-amber-500 text-slate-950 text-3xl font-bold shadow-xl grid place-items-center" style="min-height:56px">+</button></div></div>`}
+function _signIn(x){S.role=x;S.name=x==='Admin'?'Rajesh Shah':'Amit Verma';S.tab='home';go('app')}
+function menuV(){if(!S.menu)return'';const adm=S.role==='Admin';
+const it=[['ledger','📒','Add Ledger Entry'],['exp','🧾','Add Expense'],['person','👤','Add Person'],...(adm?[['site','🏗️','Add Site',1],['cat','🏷️','Add Category',1],['ptype','🧰','Add Person Type',1]]:[])];
+return `<div class="fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center" onclick="if(event.target===this){S.menu=0;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 space-y-2" style="padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))"><button onclick="S.menu=0;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button><p class="font-extrabold text-lg pb-1">Add new</p>${it.map(([k,i,l,ad])=>`<button onclick="openAdd('${k}')" class="w-full flex items-center gap-3 px-4 rounded-2xl border border-slate-200 text-left" style="min-height:56px"><span class="w-9 h-9 rounded-xl bg-amber-50 grid place-items-center">${i}</span><span class="flex-1 font-semibold">${l}</span>${ad?'<span class="text-[10px] px-2 py-0.5 rounded bg-slate-950 text-amber-400 font-bold">ADMIN</span>':''}</button>`).join('')}</div></div>`}
+function _openAdd(k){S.menu=0;S.add={k,r:'Contractor',t:k==='ledger'?'gave':ptypes[0],s:S.site<0?0:S.site,c:cats[0],p:'UPI',pid:P[0].id};rd()}
+function _saveAdd(){const a=S.add;
+ if(a.k==='person'){if(!a.n)return;P.unshift({id:Date.now(),n:a.n,co:a.co||'—',r:a.r,t:a.t,m:a.m||'',tx:[]})}
+ if(a.k==='site'){if(!a.n)return;sites.push(`Site ${String.fromCharCode(64+sites.length+1)} - ${a.n}`);cities.push(a.city||'')}
+ if(a.k==='exp'){if(!+a.a)return;if(a.ed!=null)Object.assign(exp[a.ed],{a:+a.a,s:a.s,c:a.c,note:a.note||'Expense'});else exp.push({d:today(),s:a.s,a:+a.a,c:a.c,note:a.note||'Expense',by:S.name})}
+ if(a.k==='ledger'){if(!+a.a)return;const s=a.s<0?null:a.s;
+  if(a.ed){const op=P.find(x=>x.id===a.ed.pid),x=op.tx[a.ed.i];Object.assign(x,{t:a.t,a:+a.a,s,c:a.c,p:a.p,note:a.note||''});if(a.pid!==a.ed.pid){op.tx.splice(a.ed.i,1);P.find(y=>y.id===a.pid).tx.push(x)}}
+  else P.find(x=>x.id===a.pid).tx.push({d:today(),s,t:a.t,a:+a.a,c:a.c,p:a.p,note:a.note||'',by:S.name})}
+ if(a.k==='cat'){if(!a.n)return;cats.push(a.n)}
+ if(a.k==='ptype'){if(!a.n)return;ptypes.push(a.n)}
+ S.add=null;rd()}
+function addV(){const a=S.add;if(!a)return'';
+ const inp=(ph,k,t='text')=>`<input type="${t}" ${t==='number'?'inputmode="numeric"':''} placeholder="${ph}" value="${a[k]||''}" oninput="S.add['${k}']=this.value" class="w-full ${card} px-4 outline-none focus:border-amber-500" style="min-height:48px">`;
+ const pl=(k,arr)=>`<div class="flex gap-2 flex-wrap">${arr.map(v=>pill(v,a[k]===v,`S.add.${k}='${v}';rd()`)).join('')}</div>`;
+ const amt=col=>`<div class="flex items-center justify-center gap-1"><span class="text-3xl font-bold text-slate-500">₹</span><input type="number" inputmode="numeric" value="${a.a||''}" oninput="S.add.a=this.value" placeholder="0" class="bg-transparent text-[32px] font-extrabold w-48 outline-none text-center ${col}"></div>`;
+ const H={person:'Add Contractor / Vendor',site:'Add New Site',exp:a.ed!=null?'Edit Expense':'Add Expense',ledger:a.ed?'Edit Ledger Entry':'Add Ledger Entry',cat:'Add Category',ptype:'Add Person Type'}[a.k];
+ let f='';
+ if(a.k==='person')f=inp('Name','n')+inp('Company name','co')+inp('Mobile number','m','tel')+pl('r',['Contractor','Vendor'])+fld('Person type',a.t,'add','t','ptype');
+ if(a.k==='site')f=inp('Site / project name','n')+inp('City','city');
+ if(a.k==='exp')f=amt('text-indigo-600')+fld('Site',sLab(a.s),'add','s','site')+fld('Category',a.c,'add','c','cat')+inp('Note','note');
+ if(a.k==='ledger')f=`${fld('Person',P.find(x=>x.id===a.pid)?.n,'add','pid','person')}<div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl"><button onclick="S.add.t='gave';rd()" class="rounded-lg font-bold text-sm ${a.t==='gave'?'bg-emerald-500 text-slate-950':'text-slate-500'}">+ CREDIT</button><button onclick="S.add.t='got';rd()" class="rounded-lg font-bold text-sm ${a.t==='got'?'bg-red-500 text-white':'text-slate-500'}">− DEBIT</button></div>${amt(a.t==='gave'?'text-emerald-600':'text-red-600')}${fld('Site',sLab(a.s),'add','s','siten')}${fld('Category',a.c,'add','c','cat')}${pl('p',['Cash','UPI','Bank Transfer','Cheque'])}${inp('Note','note')}`;
+ if(a.k==='cat')f=inp('Category name (e.g. Plumbing)','n');
+ if(a.k==='ptype')f=inp('Person type (e.g. Plumber)','n');
+ return `<div class="fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center" onclick="if(event.target===this){S.add=null;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 space-y-3 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))"><button onclick="S.add=null;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button><p class="font-extrabold text-lg">${H}</p>${f}<button onclick="saveAdd()" class="w-full rounded-2xl bg-amber-500 text-slate-950 font-extrabold text-lg" style="min-height:56px">${a.ed!=null&&a.ed!==false?'Save changes':'Save'}</button></div></div>`}
+const srt=(a,b)=>S.sort==='za'?b.n.localeCompare(a.n):S.sort==='high'?nets(b)-nets(a):S.sort==='low'?nets(a)-nets(b):a.n.localeCompare(b.n);
+function sortV(){if(!S.sortOpen)return'';const o=[['az','Name A → Z'],['za','Name Z → A'],['high','Highest credit (green)'],['low','Highest debit (red)']];
+return `<div class="fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center" onclick="if(event.target===this){S.sortOpen=0;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 space-y-2" style="padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))"><button onclick="S.sortOpen=0;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button><p class="font-extrabold text-lg pb-1">Sort by</p>${o.map(([k,l])=>`<button onclick="S.sort='${k}';S.sortOpen=0;rd()" class="w-full flex items-center justify-between px-4 rounded-2xl border ${S.sort===k?'border-amber-500 bg-amber-50':'border-slate-200'}" style="min-height:52px"><span class="font-semibold">${l}</span><span class="text-amber-600 font-bold">${S.sort===k?'✓':''}</span></button>`).join('')}</div></div>`}
+function detV(){if(!S.det)return'';const p=P.find(x=>x.id===S.det.pid),x=p?.tx[S.det.i];if(!x){S.det=null;return''}const c=x.t==='gave',key=`L${S.det.pid}-${S.det.i}`;
+const row=(l,v)=>`<div class="flex justify-between gap-4 py-3 border-b border-slate-200"><span class="text-slate-500 text-sm">${l}</span><span class="font-semibold text-sm text-right">${v}</span></div>`;
+return `<div class="fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center" onclick="if(event.target===this){S.det=null;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))"><button onclick="S.det=null;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button>
+<div class="text-center pb-2"><span class="px-3 py-1 rounded-full text-xs font-bold ${c?'bg-emerald-500/15 text-emerald-600':'bg-red-500/15 text-red-600'}">${c?'CREDIT':'DEBIT'}</span><p class="text-4xl font-extrabold mt-2 ${c?'text-emerald-600':'text-red-600'}">${c?'+':'−'} ${fmt(x.a)}</p></div>
+${row('Person',p.n)}${row('Recorded by',x.by===S.name?`${x.by} (You)`:x.by)}${row('Date',x.d)}${row('Site',sf(x.s))}${row('Category',x.c)}${row('Payment mode',x.p)}${row('Note',x.note||'—')}
+${acts(x.by,key,'editL','delL')}<button onclick="S.det=null;rd()" class="w-full mt-3 rounded-2xl bg-amber-500 text-slate-950 font-extrabold" style="min-height:52px">Close</button></div></div>`}
+function dv(d){return +iso(d).replace(/-/g,'')}
+function allTx(){return P.flatMap(p=>p.tx.map((x,i)=>({p,x,i}))).filter(e=>S.site<0||e.x.s===S.site).sort((a,b)=>dv(b.x.d)-dv(a.x.d)||b.i-a.i)}
+const entry=e=>`<button onclick="S.det={pid:${e.p.id},i:${e.i}};rd()" class="w-full text-left ${card} p-3 flex items-center justify-between"><span><span class="block font-bold text-sm">${e.p.n}</span><span class="block text-xs text-slate-500">${e.x.d} · ${sn(e.x.s)} · ${e.x.by.split(' ')[0]}</span></span><span class="font-extrabold ${e.x.t==='gave'?'text-emerald-600':'text-red-600'}">${e.x.t==='gave'?'+':'−'} ${fmt(e.x.a)}</span></button>`;
+function ov(){const give=P.reduce((a,p)=>a+Math.max(nets(p),0),0),get=P.reduce((a,p)=>a+Math.max(-nets(p),0),0),ex=exp.filter(e=>S.site<0||e.s===S.site).reduce((a,e)=>a+e.a,0),t=allTx();
+return `${header()}<div class="px-4 space-y-4 pt-2"><div class="grid grid-cols-2 rounded-2xl overflow-hidden border border-slate-200 shadow-md bg-white">
+<div class="p-4 bg-emerald-500/10"><p class="text-[11px] font-bold tracking-wider text-emerald-600">CREDIT</p><p class="text-2xl font-extrabold text-emerald-600 mt-1">${fmt(give)}</p></div>
+<div class="p-4 bg-red-500/10"><p class="text-[11px] font-bold tracking-wider text-red-600">DEBIT</p><p class="text-2xl font-extrabold text-red-600 mt-1">${fmt(get)}</p></div></div>
+<div class="grid grid-cols-3 gap-2">${[[P.filter(p=>S.site<0||sc(p).length).length,'Persons'],[t.length,'Entries'],[fmt(ex),'Expenses']].map(([a,b])=>`<div class="${card} p-3 text-center"><p class="font-extrabold text-amber-600">${a}</p><p class="text-xs text-slate-500">${b}</p></div>`).join('')}</div>
+<div class="flex justify-between items-center"><p class="font-extrabold">Recent activity</p><button onclick="S.tab='ledgers';rd()" class="text-sm font-semibold text-amber-600" style="min-height:40px">View all</button></div>
+<div class="space-y-2">${t.slice(0,5).map(entry).join('')||'<p class="text-center text-slate-500 py-6">No activity yet</p>'}</div></div>`}
+const allBox=l=>S.role==='Admin'?`<label class="flex-1 min-w-0 flex items-center gap-3 ${card} px-4" style="min-height:52px"><input type="checkbox" ${S.allu?'checked':''} onchange="S.allu=this.checked;rd()" class="w-5 h-5 accent-amber-500"><span class="text-sm font-semibold">Show all users’ ${l}</span></label>`:'';
+function lv(){const f=F.ledgers,all=S.role==='Admin'&&S.allu,t=allTx().filter(e=>(all||e.x.by===S.name)&&inR(f,e.x.d)&&(f.t==='All'||(f.t==='Credit'?e.x.t==='gave':e.x.t==='got')));
+return `${header()}<div class="px-4 pt-2 space-y-3"><div class="flex items-center justify-between"><h2 class="text-xl font-extrabold">All Ledger Entries</h2>${pdfBtn('pdfLedgers')}</div><div class="flex gap-2 items-stretch">${allBox('transactions')}${fbtn('ledgers')}</div>
+<p class="text-xs font-semibold text-slate-500 px-1">${t.length} ${t.length===1?'entry':'entries'}${fsum(f)}</p>
+<div class="space-y-2">${t.map(entry).join('')||'<p class="text-center text-slate-500 py-8">No entries</p>'}</div></div>`}
+function edetV(){if(S.edet===null)return'';const e=exp[S.edet];if(!e){S.edet=null;return''}
+const row=(l,v)=>`<div class="flex justify-between gap-4 py-3 border-b border-slate-200"><span class="text-slate-500 text-sm">${l}</span><span class="font-semibold text-sm text-right">${v}</span></div>`;
+return `<div class="fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center" onclick="if(event.target===this){S.edet=null;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))"><button onclick="S.edet=null;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button>
+<div class="text-center pb-2"><span class="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-600">EXPENSE</span><p class="text-4xl font-extrabold mt-2 text-indigo-600">${fmt(e.a)}</p></div>
+${row('Description',e.note)}${row('Date',e.d)}${row('Site',sites[e.s])}${row('Category',e.c)}${row('Recorded by',e.by===S.name?`${e.by} (You)`:e.by)}
+${acts(e.by,`E${S.edet}`,'editE','delE')}<button onclick="S.edet=null;rd()" class="w-full mt-3 rounded-2xl bg-amber-500 text-slate-950 font-extrabold" style="min-height:52px">Close</button></div></div>`}
+
+/* ---------- PDF ---------- */
+const rs=n=>`Rs. ${Math.abs(n).toLocaleString('en-IN')}`;
+const GRN=[5,150,105],RED=[220,38,38],IND=[79,70,229];
+const A=(v,c)=>({content:v,styles:{textColor:c}});
+const vis=y=>(S.role==='Admin'&&S.allu)||y.by===S.name;
+const isAll=()=>S.role==='Admin'&&S.allu;
+const who=()=>isAll()?'All users':`Only ${S.name}`;
+const fx=f=>fsum(f).replace(/^ · /,'')||'None';
+const gen=()=>`Generated: ${today()} | User: ${S.name} (${S.role})`;
+const fname=b=>`${b.replace(/[^\w-]+/g,'_')}_${today().replace(/\//g,'-')}.pdf`;
+const pdfBtn=fn=>`<button onclick="${fn}()" class="shrink-0 px-3 rounded-full border border-slate-300 bg-white text-xs font-bold" style="min-height:40px">📄 PDF</button>`;
+function toast(m){const t=document.createElement('div');t.textContent=m;t.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:90px;background:#0f172a;color:#fff;padding:10px 16px;border-radius:999px;font-size:13px;z-index:100;max-width:90%';document.body.appendChild(t);setTimeout(()=>t.remove(),2800)}
+async function savePdf(doc,name){try{const buf=doc.output('arraybuffer');let d=null;try{d=window.claude&&claude.use?await claude.use('downloads'):null}catch(e){}
+ if(d){await d.save({filename:name,data:buf});toast('PDF ready')}else{doc.save(name)}}catch(e){if(e&&e.code==='declined')return;toast('Could not create the PDF')}}
+function mkPdf(o){const J=window.jspdf;if(!J){toast('PDF library failed to load');return}
+ const doc=new J.jsPDF({unit:'pt',format:'a4'}),W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight();
+ doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('Construction Khata Book',40,40);doc.setFontSize(12);doc.text(o.title,40,60);
+ doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90);o.meta.forEach((m,i)=>doc.text(m,40,78+i*12));
+ const body=o.body.length?o.body:[[{content:'No entries match the selected filters',colSpan:o.head.length,styles:{halign:'center',textColor:[120,120,120]}}]];
+ const cs={};(o.right||[]).forEach(i=>cs[i]={halign:'right'});
+ doc.autoTable({startY:78+o.meta.length*12+4,head:[o.head],body,theme:'grid',styles:{fontSize:8,cellPadding:4,textColor:30},headStyles:{fillColor:[245,158,11],textColor:20},columnStyles:cs,margin:{left:40,right:40,bottom:40}});
+ doc.autoTable({startY:doc.lastAutoTable.finalY+14,body:o.sum,theme:'plain',styles:{fontSize:10,fontStyle:'bold',cellPadding:3,textColor:30},columnStyles:{1:{halign:'right'}},tableWidth:270,margin:{left:W-310}});
+ const n=doc.getNumberOfPages();for(let i=1;i<=n;i++){doc.setPage(i);doc.setFontSize(8);doc.setTextColor(120);doc.text(`Page ${i} of ${n}`,W-40,H-20,{align:'right'})}
+ savePdf(doc,o.name)}
+function _pdfPerson(){const p=P.find(x=>x.id===S.pid),all=isAll();
+ const tx=p.tx.filter(x=>(S.scope<0||x.s===S.scope)&&vis(x)&&inR(F.pass,x.d)).sort((a,b)=>dv(b.d)-dv(a.d)||p.tx.indexOf(b)-p.tx.indexOf(a));
+ const g=tx.filter(x=>x.t==='gave').reduce((a,x)=>a+x.a,0),r=tx.filter(x=>x.t==='got').reduce((a,x)=>a+x.a,0),n=g-r,sc=S.scope<0?'All Sites':sf(S.scope);
+ const head=['Date','Site','Category','Mode','Note',...(all?['By']:[]),'Credit','Debit'];
+ mkPdf({title:`Ledger Statement - ${p.n}`,meta:[`${p.co} | ${p.r} | ${p.t}${p.m?` | +91 ${p.m}`:''}`,`Site: ${sc}`,`Entries: ${who()} | Filters: ${fx(F.pass)}`,gen()],head,right:[head.length-2,head.length-1],
+  body:tx.map(x=>[x.d,sf(x.s),x.c,x.p,x.note||'-',...(all?[x.by]:[]),x.t==='gave'?A(rs(x.a),GRN):'',x.t==='got'?A(rs(x.a),RED):'']),
+  sum:[['Total Credit',rs(g)],['Total Debit',rs(r)],['Net Balance',rs(n)+(n>=0?' (Receivable)':' (Payable)')]],name:fname(`${p.n}_${sc}`)})}
+function _pdfLedgers(){const f=F.ledgers,all=isAll(),t=allTx().filter(e=>vis(e.x)&&inR(f,e.x.d)&&(f.t==='All'||(f.t==='Credit'?e.x.t==='gave':e.x.t==='got')));
+ const g=t.filter(e=>e.x.t==='gave').reduce((a,e)=>a+e.x.a,0),r=t.filter(e=>e.x.t==='got').reduce((a,e)=>a+e.x.a,0),sc=S.site<0?'All Sites':sf(S.site);
+ const head=['Date','Person','Site','Category','Mode',...(all?['By']:[]),'Credit','Debit'];
+ mkPdf({title:'All Ledger Entries',meta:[`Site: ${sc}`,`Entries: ${who()} | Filters: ${fx(f)}`,gen()],head,right:[head.length-2,head.length-1],
+  body:t.map(e=>[e.x.d,e.p.n,sf(e.x.s),e.x.c,e.x.p,...(all?[e.x.by]:[]),e.x.t==='gave'?A(rs(e.x.a),GRN):'',e.x.t==='got'?A(rs(e.x.a),RED):'']),
+  sum:[['Total Credit',rs(g)],['Total Debit',rs(r)],['Net',rs(g-r)+(g-r>=0?' (Receivable)':' (Payable)')]],name:fname(`Ledger_${sc}`)})}
+function _pdfExp(){const f=F.exp,all=isAll(),list=exp.map((e,i)=>({e,i})).filter(o=>(S.site<0||o.e.s===S.site)&&vis(o.e)&&inR(f,o.e.d)).sort((a,b)=>dv(b.e.d)-dv(a.e.d)||b.i-a.i),sc=S.site<0?'All Sites':sf(S.site);
+ const head=['Date','Description','Site','Category',...(all?['By']:[]),'Amount'];
+ mkPdf({title:'Direct Expenses',meta:[`Site: ${sc}`,`Entries: ${who()} | Filters: ${fx(f)}`,gen()],head,right:[head.length-1],
+  body:list.map(({e})=>[e.d,e.note,sf(e.s),e.c,...(all?[e.by]:[]),A(rs(e.a),IND)]),
+  sum:[['Total Expenses',rs(list.reduce((a,o)=>a+o.e.a,0))]],name:fname(`Expenses_${sc}`)})}
+function _pdfSite(){if(S.site<0)return;const f=F.site,all=isAll(),ok=y=>vis(y)&&inR(f,y.d);
+ const L=P.flatMap(p=>p.tx.map((x,i)=>({k:'L',p,i,x,d:x.d}))).filter(o=>o.x.s===S.site&&ok(o.x));
+ const E=exp.map((e,i)=>({k:'E',e,i,d:e.d})).filter(o=>o.e.s===S.site&&ok(o.e));
+ const feed=[...L,...E].filter(o=>f.t==='All Activity'||(f.t==='Ledgers Only'?o.k==='L':o.k==='E')).sort((a,b)=>dv(b.d)-dv(a.d)||b.i-a.i);
+ const cr=feed.filter(o=>o.k==='L'&&o.x.t==='gave').reduce((a,o)=>a+o.x.a,0),db=feed.filter(o=>o.k==='L'&&o.x.t==='got').reduce((a,o)=>a+o.x.a,0),ex=feed.filter(o=>o.k==='E').reduce((a,o)=>a+o.e.a,0);
+ const head=['Date','Type','Person / Description','Category','Mode',...(all?['By']:[]),'Amount'];
+ mkPdf({title:`Site Report - ${sf(S.site)}`,meta:[`${cities[S.site]||''} | Type: ${f.t}`,`Entries: ${who()} | Filters: ${fx(f)}`,gen()],head,right:[head.length-1],
+  body:feed.map(o=>o.k==='L'?[o.x.d,o.x.t==='gave'?'Credit':'Debit',o.p.n,o.x.c,o.x.p,...(all?[o.x.by]:[]),A(rs(o.x.a),o.x.t==='gave'?GRN:RED)]:[o.e.d,'Expense',o.e.note,o.e.c,'-',...(all?[o.e.by]:[]),A(rs(o.e.a),IND)]),
+  sum:[['Credits',rs(cr)],['Debits',rs(db)],['Expenses',rs(ex)],['Site Outflow (Credits + Expenses)',rs(cr+ex)]],name:fname(`Site_${sf(S.site)}`)})}
+function nav(){const t=[['home','🏠','Overview'],['persons','👥','Persons'],['sites','👷','Sites'],['ledgers','📒','Ledgers'],['exp','🧾','Expenses'],['admin','🛡️','Admin']].filter(x=>x[0]!=='admin'||S.role==='Admin');
+ return `<nav style="grid-template-columns:repeat(${t.length},1fr)" class="bar z-40 grid bg-white/95 backdrop-blur border-t border-slate-200">${t.map(([k,i,l])=>`<button onclick="S.tab='${k}';S.scope=-1;S.ap=null;rd()" class="flex flex-col items-center justify-center ${S.tab===k?'text-amber-600':'text-slate-400'}" style="min-height:56px"><span class="text-lg">${i}</span><span class="text-[10px] font-semibold">${l}</span></button>`).join('')}</nav>`}
+
+function sheetV(){const s=S.sheet;if(!s)return'';
+ return `<div class="fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center" onclick="if(event.target===this){S.sheet=null;rd()}"><div class="sheet relative w-full max-w-[430px] bg-white rounded-t-3xl p-5 pt-12 space-y-3 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(20px + env(safe-area-inset-bottom,0px))"><button onclick="S.sheet=null;rd()" aria-label="Close" class="absolute right-3 top-3 w-10 h-10 rounded-full bg-slate-100 text-slate-600 grid place-items-center text-lg font-bold" style="min-height:40px">✕</button>
+<div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl"><button onclick="S.sheet.t='gave';rd()" class="rounded-lg font-bold text-sm ${s.t==='gave'?'bg-emerald-500 text-slate-950':'text-slate-500'}">+ CREDIT</button><button onclick="S.sheet.t='got';rd()" class="rounded-lg font-bold text-sm ${s.t==='got'?'bg-red-500 text-white':'text-slate-500'}">− DEBIT</button></div>
+<div class="flex items-center justify-center gap-1 py-1"><span class="text-3xl font-bold text-slate-500">₹</span><input id="amt" type="number" inputmode="numeric" value="${s.a||''}" oninput="S.sheet.a=+this.value" placeholder="0" class="bg-transparent text-[32px] font-extrabold w-48 outline-none text-center ${s.t==='gave'?'text-emerald-600':'text-red-600'}"></div>
+${fld('Site',sLab(s.s),'sheet','s','siten')}${fld('Category',s.c,'sheet','c','cat')}
+<div class="flex gap-2 flex-wrap">${['Cash','UPI','Bank Transfer','Cheque'].map(c=>pill(c,s.p===c,`S.sheet.p='${c}';rd()`)).join('')}</div>
+<input oninput="S.sheet.note=this.value" value="${s.note}" placeholder="Add a note" class="w-full ${card} px-4 outline-none" style="min-height:48px">
+<button onclick="save()" class="w-full rounded-2xl bg-amber-500 text-slate-950 font-extrabold text-lg" style="min-height:56px">Confirm Entry</button></div></div>`}
+function _openSheet(t){S.sheet={t,a:0,s:S.scope<0?0:S.scope,c:'Cement',p:'UPI',note:''};rd()}
+function _save(){const s=S.sheet;if(!s.a)return;P.find(x=>x.id===S.pid).tx.push({d:today(),s:s.s<0?null:s.s,t:s.t,a:s.a,c:s.c,p:s.p,note:s.note,by:S.name});S.sheet=null;rd()}
+function go(s){S.scr=s;window.scrollTo(0,0);rd()}
+function rd(mode){
+ const a=document.getElementById('app');
+ if(mode===3){const el=document.getElementById('pks'),pos=el?el.selectionStart:0;paint();const i=document.getElementById('pks');if(i){i.focus();i.setSelectionRange(pos,pos)}return}
+ if(mode===1){const el=document.activeElement,pos=el.selectionStart;paint();const i=document.querySelector('input[placeholder^="🔍"]');if(i){i.focus();i.setSelectionRange(pos,pos)}return}
+ const y=scrollY;paint();scrollTo(0,y)}
+function paint(){
+ const a=document.getElementById('app');let h='';
+ if(S.scr==='login')h=login();
+ else if(S.scr==='ledger')h=ledger()+sheetV()+detV()+fsetV()+addV()+pickerV();
+ else{if(S.tab==='admin'&&S.role!=='Admin')S.tab='home';h={home:ov,persons:home,sites:sitesV,ledgers:lv,exp:exps,admin:adm,profile:prof}[S.tab]();h+=nav()+fab()+pickV()+addV()+sortV()+menuV()+detV()+edetV()+fsetV()+pickerV()}
+ a.innerHTML=h}
+paint();
+</script></body></html>

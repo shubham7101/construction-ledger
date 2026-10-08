@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#f59e0b"/>
+  <!-- building with windows, inside the maskable safe zone (centre 80%) -->
+  <g fill="#ffffff">
+    <rect x="150" y="150" width="212" height="222" rx="14"/>
+    <rect x="120" y="360" width="272" height="26" rx="13"/>
+  </g>
+  <g fill="#f59e0b">
+    <rect x="182" y="186" width="44" height="44" rx="8"/>
+    <rect x="286" y="186" width="44" height="44" rx="8"/>
+    <rect x="182" y="262" width="44" height="44" rx="8"/>
+    <rect x="286" y="262" width="44" height="44" rx="8"/>
+    <rect x="234" y="314" width="44" height="58" rx="8"/>
+  </g>
+</svg>
