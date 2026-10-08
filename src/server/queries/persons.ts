@@ -42,10 +42,12 @@ export async function getPersonsData(params: {
     user,
   } = params;
   const allowed = await getAllowedSites(user);
+  // Always the logged-in user's own entries, admins included: the list shows
+  // only persons they have dealt with, and the balance between the two of them.
   const ledgerOn = ledgerScope({
     siteId,
     user,
-    everyone: user.role === "admin",
+    everyone: false,
     allowed,
   });
 
@@ -58,7 +60,8 @@ export async function getPersonsData(params: {
       )
     : undefined;
 
-  // single query: persons LEFT JOIN their scoped ledger rows, aggregated per person
+  // single query: persons INNER JOIN their scoped ledger rows, aggregated per
+  // person — the inner join drops persons with no entries by this user
   const rows = await db
     .select({
       id: persons.id,
@@ -72,7 +75,7 @@ export async function getPersonsData(params: {
     })
     .from(persons)
     .innerJoin(personTypes, eq(persons.personTypeId, personTypes.id))
-    .leftJoin(
+    .innerJoin(
       ledgerEntries,
       and(eq(ledgerEntries.personId, persons.id), ledgerOn),
     )
@@ -85,9 +88,7 @@ export async function getPersonsData(params: {
         search,
       ),
     )
-    .groupBy(persons.id, personTypes.name)
-    // when a site is selected, hide persons with no activity there
-    .having(siteId >= 0 ? sql`COUNT(${ledgerEntries.id}) > 0` : undefined);
+    .groupBy(persons.id, personTypes.name);
 
   const result = rows.map((r) => ({
     id: r.id,

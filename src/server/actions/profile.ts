@@ -5,7 +5,7 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { persons, users } from "@/db/schema";
 import { changePasswordSchema, profileSchema } from "@/lib/validators";
-import { requireUser } from "@/server/auth/jwt";
+import { destroyJwtToken, requireUser } from "@/server/auth/jwt";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
 import { type ActionResult, revalidateAllPages, runAction } from "./shared";
 
@@ -66,6 +66,9 @@ export async function changeMyPasswordAction(
       .update(users)
       .set({ passwordHash: await hashPassword(next) })
       .where(eq(users.id, user.id));
+    // Sign out here rather than trusting the client to: the user must log in
+    // again with the new password.
+    await destroyJwtToken();
     return { ok: true };
   });
 }

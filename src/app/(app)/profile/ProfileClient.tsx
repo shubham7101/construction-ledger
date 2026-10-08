@@ -118,8 +118,9 @@ export const ProfileClient: React.FC<ProfileClientProps> = ({
     startSaving(async () => {
       const res = await changeMyPasswordAction({ current, next });
       if (res.ok) {
-        showToast("Password changed");
-        setPasswordDraft(null);
+        // The action already cleared the session; the login page confirms.
+        router.replace("/login?password=changed");
+        router.refresh();
       } else {
         showToast(res.error || "Could not change password");
       }

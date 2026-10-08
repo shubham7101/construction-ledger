@@ -29,7 +29,7 @@ const FEATURES = [
   { icon: "🔐", text: "Role-based access for admins and site staff" },
 ];
 
-export default function LoginForm() {
+export default function LoginForm({ notice }: { notice: string | null }) {
   const router = useRouter();
   const [mobile, setMobile] = useState("");
   const [password, setPassword] = useState("");
@@ -133,6 +133,11 @@ export default function LoginForm() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+            {notice && !error && (
+              <output className="block rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-center text-sm font-medium text-emerald-700">
+                {notice}
+              </output>
+            )}
             {error && (
               <div
                 id="login-error"
