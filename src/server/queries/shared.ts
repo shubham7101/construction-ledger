@@ -14,7 +14,7 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { cache } from "react";
 import { expenses, ledgerEntries } from "@/db/schema";
 import type { CurrentUser } from "@/server/auth/jwt";
-import { getUserAllowedSiteIds } from "@/server/permissions";
+import { getAllowedSiteIds } from "@/server/permissions";
 
 export interface ParsedFilters {
   t?: string;
@@ -55,8 +55,7 @@ function buildDateConditions(
  * Memoised per request (see reference.ts) so the layout and page share one lookup.
  */
 export const getAllowedSites = cache(
-  async (user: CurrentUser): Promise<number[] | null> =>
-    user.role === "admin" ? null : getUserAllowedSiteIds(user.id),
+  (user: CurrentUser): Promise<number[] | null> => getAllowedSiteIds(user),
 );
 
 /**

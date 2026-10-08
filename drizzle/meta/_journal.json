@@ -8,6 +8,13 @@
       "when": 1791404814863,
       "tag": "0000_goofy_black_panther",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791460030296,
+      "tag": "0001_chunky_maggott",
+      "breakpoints": true
     }
   ]
 }

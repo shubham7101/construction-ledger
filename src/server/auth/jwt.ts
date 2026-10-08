@@ -1,11 +1,11 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { jwtVerify, SignJWT } from "jose";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { userSiteAccess, users } from "@/db/schema";
 import { env } from "@/server/env";
 
 export const JWT_COOKIE_NAME = "cl_token";
@@ -61,6 +61,18 @@ export async function destroyJwtToken(): Promise<void> {
 }
 
 /**
+ * Site ids each signed-in user may access, fetched in the same query as the
+ * user row so pages and actions don't need a second round trip. Kept beside
+ * the user object rather than on it, because CurrentUser is passed to client
+ * components. Keyed on the per-request object, so nothing outlives a request.
+ */
+const allowedSiteIds = new WeakMap<CurrentUser, number[]>();
+
+/** The site ids loaded with this user by getCurrentUser(), if any. */
+export const loadedSiteIds = (user: CurrentUser): number[] | undefined =>
+  allowedSiteIds.get(user);
+
+/**
  * The source of truth for "is this person logged in": verifies the token AND
  * checks the user still exists and is active. Returns null (never throws or
  * redirects), so it is safe to call from the /login page.
@@ -87,6 +99,7 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
         mobile: users.mobile,
         role: users.role,
         isActive: users.isActive,
+        siteIds: sql<string>`(SELECT json_group_array(${userSiteAccess.siteId}) FROM ${userSiteAccess} WHERE ${userSiteAccess.userId} = ${users.id})`,
       })
       .from(users)
       .where(eq(users.id, userId))
@@ -94,12 +107,14 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
 
     if (!user || user.isActive === 0) return null;
 
-    return {
+    const currentUser: CurrentUser = {
       id: user.id,
       name: user.name,
       mobile: user.mobile,
       role: user.role,
     };
+    allowedSiteIds.set(currentUser, JSON.parse(user.siteIds) as number[]);
+    return currentUser;
   } catch {
     return null;
   }

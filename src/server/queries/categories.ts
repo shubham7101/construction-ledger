@@ -98,25 +98,25 @@ export async function getCategorySummary(
   categoryId: number,
   params: CategoryParams,
 ) {
-  const [category] = await db
-    .select({ id: categories.id, name: categories.name })
-    .from(categories)
-    .where(eq(categories.id, categoryId))
-    .limit(1);
-  if (!category) return null;
-
   const scoped = {
     ...params,
     filter: { ...(params.filter ?? { dm: "any" as const }), categoryId },
   };
   const { ledgerWhere, expenseWhere } = await scopes(scoped);
-  const [[ledger], [expense]] = await Promise.all([
+  // In parallel: for an unknown category the totals are just discarded.
+  const [[category], [ledger], [expense]] = await Promise.all([
+    db
+      .select({ id: categories.id, name: categories.name })
+      .from(categories)
+      .where(eq(categories.id, categoryId))
+      .limit(1),
     db
       .select({ credit: creditSum, debit: debitSum })
       .from(ledgerEntries)
       .where(and(ledgerWhere)),
     db.select({ total: expenseTotal }).from(expenses).where(expenseWhere),
   ]);
+  if (!category) return null;
 
   return {
     category,

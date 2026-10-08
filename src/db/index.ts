@@ -9,14 +9,15 @@ const client = createClient({
   authToken: process.env.DATABASE_AUTH_TOKEN,
 });
 
+// Local file only. Over Turso every execute() is its own HTTP stream, so a
+// connection PRAGMA would not outlive its request — it would only add a
+// round trip to every cold start.
 if (url.startsWith("file:")) {
   await client.execute("PRAGMA journal_mode = WAL");
   await client.execute("PRAGMA synchronous = NORMAL"); // safe with WAL, faster writes
   await client.execute("PRAGMA busy_timeout = 5000");
+  await client.execute("PRAGMA foreign_keys = ON");
 }
-
-// Run on every connection type so you're not relying on defaults
-await client.execute("PRAGMA foreign_keys = ON");
 
 export const db = drizzle(client, { schema });
 
