@@ -184,13 +184,12 @@ export async function getAccessibleSite(siteId: number, user: CurrentUser) {
  * Returns null when the site is inactive or not accessible.
  */
 export async function getSiteDetail(params: FeedParams) {
-  const site = await getAccessibleSite(params.siteId, params.user);
-  if (!site) return null;
-
   const { ledgerWhere, expenseWhere, includeLedger, includeExpenses } =
     await feedScope(params);
 
-  const [[ledgerRes], [expenseRes], feed] = await Promise.all([
+  // In parallel: for an inaccessible site the totals and feed are discarded.
+  const [site, [ledgerRes], [expenseRes], feed] = await Promise.all([
+    getAccessibleSite(params.siteId, params.user),
     db
       .select({ credit: creditSum, debit: debitSum, count: countAll })
       .from(ledgerEntries)
@@ -201,6 +200,7 @@ export async function getSiteDetail(params: FeedParams) {
       .where(expenseWhere),
     getFeedPage(params),
   ]);
+  if (!site) return null;
 
   const expenseSum = expenseRes?.total ?? 0;
   return {

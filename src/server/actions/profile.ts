@@ -30,16 +30,16 @@ export async function updateMyProfileAction(
     }
 
     // Keep the linked person record in step with the account.
-    await db.transaction(async (tx) => {
-      await tx
+    await db.batch([
+      db
         .update(users)
         .set({ name: data.name, mobile: data.mobile })
-        .where(eq(users.id, user.id));
-      await tx
+        .where(eq(users.id, user.id)),
+      db
         .update(persons)
         .set({ name: data.name, mobile: data.mobile })
-        .where(eq(persons.userId, user.id));
-    });
+        .where(eq(persons.userId, user.id)),
+    ]);
 
     revalidateAllPages(); // the name shows in the header everywhere
     return { ok: true };

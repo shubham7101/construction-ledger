@@ -101,16 +101,19 @@ export async function updatePersonAction(
       };
     }
 
-    await db.transaction(async (tx) => {
-      await tx.update(persons).set(data).where(eq(persons.id, id));
+    // One atomic request instead of an interactive transaction.
+    await db.batch([
+      db.update(persons).set(data).where(eq(persons.id, id)),
       // Keep the account's display name in step with its person record.
-      if (existing.userId !== null) {
-        await tx
-          .update(users)
-          .set({ name: data.name })
-          .where(eq(users.id, existing.userId));
-      }
-    });
+      ...(existing.userId !== null
+        ? [
+            db
+              .update(users)
+              .set({ name: data.name })
+              .where(eq(users.id, existing.userId)),
+          ]
+        : []),
+    ]);
 
     revalidatePaths("/persons", `/persons/${id}`);
     return { ok: true };

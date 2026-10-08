@@ -166,6 +166,7 @@ export const ledgerEntries = sqliteTable(
     index("idx_ledger_person_date").on(table.personId, table.date),
     index("idx_ledger_site_date").on(table.siteId, table.date),
     index("idx_ledger_by_date").on(table.createdBy, table.date),
+    index("idx_ledger_category_date").on(table.categoryId, table.date),
   ],
 );
 
@@ -196,5 +197,6 @@ export const expenses = sqliteTable(
     check("ledger_date_valid", sql`date(${table.date}) IS ${table.date}`),
     index("idx_expense_site_date").on(table.siteId, table.date),
     index("idx_expense_by_date").on(table.createdBy, table.date),
+    index("idx_expense_category_date").on(table.categoryId, table.date),
   ],
 );

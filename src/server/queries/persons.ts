@@ -180,21 +180,21 @@ export type PassbookRow = Awaited<
 
 /** The person, totals and count over every matching entry, and the first page. */
 export async function getPassbookData(params: PassbookParams) {
-  const [personRow] = await db
-    .select({ person: persons, personTypeName: personTypes.name })
-    .from(persons)
-    .innerJoin(personTypes, eq(persons.personTypeId, personTypes.id))
-    .where(eq(persons.id, params.personId))
-    .limit(1);
-  if (!personRow) return null;
-
-  const [[totals], entries] = await Promise.all([
+  // In parallel: for an unknown person the totals and page are just discarded.
+  const [[personRow], [totals], entries] = await Promise.all([
+    db
+      .select({ person: persons, personTypeName: personTypes.name })
+      .from(persons)
+      .innerJoin(personTypes, eq(persons.personTypeId, personTypes.id))
+      .where(eq(persons.id, params.personId))
+      .limit(1),
     db
       .select({ credit: creditSum, debit: debitSum, count: countAll })
       .from(ledgerEntries)
       .where(await passbookWhere(params)),
     getPassbookPage(params),
   ]);
+  if (!personRow) return null;
 
   const credit = totals?.credit ?? 0;
   const debit = totals?.debit ?? 0;

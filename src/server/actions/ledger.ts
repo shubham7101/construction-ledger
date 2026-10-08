@@ -1,8 +1,8 @@
 "use server";
 
 import "server-only";
-import { and, eq } from "drizzle-orm";
-import { db, type Tx } from "@/db";
+import { eq, sql } from "drizzle-orm";
+import { db } from "@/db";
 import {
   categories,
   ledgerEntries,
@@ -64,36 +64,21 @@ async function findOwnership(id: number) {
 /**
  * Brings site_membership in line with ledger_entries for one (person, site)
  * pair: a row exists exactly when the person has an entry on that site.
- * Re-deriving (instead of counting) means it can never drift.
+ * Re-deriving (instead of counting) means it can never drift. Written as
+ * plain statements, with no read first, so they go in the same db.batch()
+ * as the entry write: one atomic request instead of a transaction's many.
  */
-async function syncMembership(tx: Tx, personId: number, siteId: number | null) {
-  if (siteId === null) return; // "No site" entries aren't tied to a site
-  const [entry] = await tx
-    .select({ id: ledgerEntries.id })
-    .from(ledgerEntries)
-    .where(
-      and(
-        eq(ledgerEntries.personId, personId),
-        eq(ledgerEntries.siteId, siteId),
-      ),
-    )
-    .limit(1);
-
-  if (entry) {
-    await tx
-      .insert(siteMembership)
-      .values({ personId, siteId })
-      .onConflictDoNothing();
-  } else {
-    await tx
-      .delete(siteMembership)
-      .where(
-        and(
-          eq(siteMembership.personId, personId),
-          eq(siteMembership.siteId, siteId),
-        ),
-      );
-  }
+function syncMembership(personId: number, siteId: number | null) {
+  if (siteId === null) return []; // "No site" entries aren't tied to a site
+  const hasEntry = sql`EXISTS (SELECT 1 FROM ${ledgerEntries} WHERE person_id = ${personId} AND site_id = ${siteId})`;
+  return [
+    db.run(
+      sql`INSERT INTO ${siteMembership} (person_id, site_id) SELECT ${personId}, ${siteId} WHERE ${hasEntry} ON CONFLICT DO NOTHING`,
+    ),
+    db.run(
+      sql`DELETE FROM ${siteMembership} WHERE person_id = ${personId} AND site_id = ${siteId} AND NOT ${hasEntry}`,
+    ),
+  ];
 }
 
 export async function createLedgerEntryAction(
@@ -103,20 +88,19 @@ export async function createLedgerEntryAction(
     const user = await requireUser();
     const data = ledgerEntrySchema.parse(input);
 
-    if (!(await canAccessSite(user, data.siteId))) {
-      return { ok: false, error: SITE_ACCESS_DENIED };
-    }
-    if (!(await isSiteActive(data.siteId))) {
-      return { ok: false, error: SITE_INACTIVE };
-    }
-    if (!(await isPersonActive(data.personId))) {
-      return { ok: false, error: PERSON_INACTIVE };
-    }
+    const [canAccess, siteActive, personActive] = await Promise.all([
+      canAccessSite(user, data.siteId),
+      isSiteActive(data.siteId),
+      isPersonActive(data.personId),
+    ]);
+    if (!canAccess) return { ok: false, error: SITE_ACCESS_DENIED };
+    if (!siteActive) return { ok: false, error: SITE_INACTIVE };
+    if (!personActive) return { ok: false, error: PERSON_INACTIVE };
 
-    await db.transaction(async (tx) => {
-      await tx.insert(ledgerEntries).values({ ...data, createdBy: user.id });
-      await syncMembership(tx, data.personId, data.siteId);
-    });
+    await db.batch([
+      db.insert(ledgerEntries).values({ ...data, createdBy: user.id }),
+      ...syncMembership(data.personId, data.siteId),
+    ]);
 
     revalidateLedgerPages(data.personId);
     return { ok: true };
@@ -131,34 +115,35 @@ export async function updateLedgerEntryAction(
     const user = await requireUser();
     const data = ledgerEntrySchema.parse(input);
 
-    const existing = await findOwnership(id);
+    // All independent lookups in one go; the checks below use what they need.
+    const [existing, canAccess, siteActive, personActive] = await Promise.all([
+      findOwnership(id),
+      canAccessSite(user, data.siteId),
+      isSiteActive(data.siteId),
+      isPersonActive(data.personId),
+    ]);
     if (!existing) return { ok: false, error: "Entry not found" };
     if (!canEditOrDeleteRecord(user, existing.createdBy)) {
       return { ok: false, error: "Unauthorized to edit this entry" };
     }
-    if (!(await canAccessSite(user, data.siteId))) {
-      return { ok: false, error: SITE_ACCESS_DENIED };
-    }
+    if (!canAccess) return { ok: false, error: SITE_ACCESS_DENIED };
     // Moving to another site needs that site to be active; staying put is fine.
-    if (data.siteId !== existing.siteId && !(await isSiteActive(data.siteId))) {
+    if (data.siteId !== existing.siteId && !siteActive) {
       return { ok: false, error: SITE_INACTIVE };
     }
-    if (
-      data.personId !== existing.personId &&
-      !(await isPersonActive(data.personId))
-    ) {
+    if (data.personId !== existing.personId && !personActive) {
       return { ok: false, error: PERSON_INACTIVE };
     }
 
-    await db.transaction(async (tx) => {
-      await tx
+    await db.batch([
+      db
         .update(ledgerEntries)
         .set({ ...data, updatedAt: new Date().toISOString() })
-        .where(eq(ledgerEntries.id, id));
+        .where(eq(ledgerEntries.id, id)),
       // The entry may have moved person or site: fix both the old and new pair.
-      await syncMembership(tx, existing.personId, existing.siteId);
-      await syncMembership(tx, data.personId, data.siteId);
-    });
+      ...syncMembership(existing.personId, existing.siteId),
+      ...syncMembership(data.personId, data.siteId),
+    ]);
 
     revalidateLedgerPages(data.personId);
     // The entry may have moved to another person; refresh the old passbook too.
@@ -181,10 +166,10 @@ export async function deleteLedgerEntryAction(
       return { ok: false, error: "Unauthorized to delete this entry" };
     }
 
-    await db.transaction(async (tx) => {
-      await tx.delete(ledgerEntries).where(eq(ledgerEntries.id, id));
-      await syncMembership(tx, existing.personId, existing.siteId);
-    });
+    await db.batch([
+      db.delete(ledgerEntries).where(eq(ledgerEntries.id, id)),
+      ...syncMembership(existing.personId, existing.siteId),
+    ]);
 
     revalidateLedgerPages(existing.personId);
     return { ok: true };

@@ -50,12 +50,12 @@ export async function createExpenseAction(
     const user = await requireUser();
     const data = expenseSchema.parse(input);
 
-    if (!(await canAccessSite(user, data.siteId))) {
-      return { ok: false, error: SITE_ACCESS_DENIED };
-    }
-    if (!(await isSiteActive(data.siteId))) {
-      return { ok: false, error: SITE_INACTIVE };
-    }
+    const [canAccess, siteActive] = await Promise.all([
+      canAccessSite(user, data.siteId),
+      isSiteActive(data.siteId),
+    ]);
+    if (!canAccess) return { ok: false, error: SITE_ACCESS_DENIED };
+    if (!siteActive) return { ok: false, error: SITE_INACTIVE };
 
     await db.insert(expenses).values({ ...data, createdBy: user.id });
 
@@ -72,16 +72,19 @@ export async function updateExpenseAction(
     const user = await requireUser();
     const data = expenseSchema.parse(input);
 
-    const existing = await findCreator(id);
+    // All independent lookups in one go; the checks below use what they need.
+    const [existing, canAccess, siteActive] = await Promise.all([
+      findCreator(id),
+      canAccessSite(user, data.siteId),
+      isSiteActive(data.siteId),
+    ]);
     if (!existing) return { ok: false, error: "Expense not found" };
     if (!canEditOrDeleteRecord(user, existing.createdBy)) {
       return { ok: false, error: "Unauthorized to edit this expense" };
     }
-    if (!(await canAccessSite(user, data.siteId))) {
-      return { ok: false, error: SITE_ACCESS_DENIED };
-    }
+    if (!canAccess) return { ok: false, error: SITE_ACCESS_DENIED };
     // Moving to another site needs that site to be active; staying put is fine.
-    if (data.siteId !== existing.siteId && !(await isSiteActive(data.siteId))) {
+    if (data.siteId !== existing.siteId && !siteActive) {
       return { ok: false, error: SITE_INACTIVE };
     }
 

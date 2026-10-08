@@ -5,7 +5,7 @@ import { firstParam, type RawSearchParams } from "@/lib/search-params";
 import { requireUser } from "@/server/auth/jwt";
 import { getCategorySummary } from "@/server/queries/categories";
 import { getSitesOptions } from "@/server/queries/reference";
-import { getAccessibleSite, getFeedPage } from "@/server/queries/sites";
+import { getFeedPage } from "@/server/queries/sites";
 import { CategoryDetailClient } from "./CategoryDetailClient";
 
 /** Everything tagged with one category, across all sites or one (?site=). */
@@ -22,15 +22,15 @@ export default async function CategoryDetailPage({
   if (!Number.isInteger(categoryId)) notFound();
 
   const parsed = parseSearchParams(raw);
-  // A site the user can't see falls back to all sites.
-  const siteId =
-    parsed.site >= 0 && (await getAccessibleSite(parsed.site, user))
-      ? parsed.site
-      : -1;
+  // The layout already loaded the user's active, accessible sites (memoised
+  // per request), so this check costs no query. A site the user can't see
+  // falls back to all sites.
+  const { sites } = await getSitesOptions(user);
+  const siteId = sites.some((s) => s.id === parsed.site) ? parsed.site : -1;
   const allUsers = firstParam(raw.all);
   const dates = { dm: parsed.dm, d1: parsed.d1, d2: parsed.d2 };
 
-  const [summary, feed, { sites }] = await Promise.all([
+  const [summary, feed] = await Promise.all([
     getCategorySummary(categoryId, {
       siteId,
       allUsers,
@@ -43,7 +43,6 @@ export default async function CategoryDetailPage({
       filter: { ...dates, categoryId },
       user,
     }),
-    getSitesOptions(user),
   ]);
   if (!summary) notFound();
 
