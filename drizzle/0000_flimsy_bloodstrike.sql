@@ -5,6 +5,17 @@ CREATE TABLE `categories` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `categories_name_unique` ON `categories` (`name`);--> statement-breakpoint
+CREATE TABLE `expense_balances` (
+	`user_id` integer NOT NULL,
+	`site_id` integer NOT NULL,
+	`total` real DEFAULT 0 NOT NULL,
+	`count` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`user_id`, `site_id`),
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`site_id`) REFERENCES `sites`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `idx_eb_site` ON `expense_balances` (`site_id`);--> statement-breakpoint
 CREATE TABLE `expenses` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`amount` real NOT NULL,
@@ -24,6 +35,21 @@ CREATE TABLE `expenses` (
 --> statement-breakpoint
 CREATE INDEX `idx_expense_site_date` ON `expenses` (`site_id`,`date`);--> statement-breakpoint
 CREATE INDEX `idx_expense_by_date` ON `expenses` (`created_by`,`date`);--> statement-breakpoint
+CREATE INDEX `idx_expense_category_date` ON `expenses` (`category_id`,`date`);--> statement-breakpoint
+CREATE TABLE `ledger_balances` (
+	`user_id` integer NOT NULL,
+	`person_id` integer NOT NULL,
+	`site_id` integer NOT NULL,
+	`credit` real DEFAULT 0 NOT NULL,
+	`debit` real DEFAULT 0 NOT NULL,
+	`entries` integer DEFAULT 0 NOT NULL,
+	PRIMARY KEY(`user_id`, `person_id`, `site_id`),
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`person_id`) REFERENCES `persons`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `idx_lb_person_site` ON `ledger_balances` (`person_id`,`site_id`);--> statement-breakpoint
+CREATE INDEX `idx_lb_site` ON `ledger_balances` (`site_id`);--> statement-breakpoint
 CREATE TABLE `ledger_entries` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`person_id` integer NOT NULL,
@@ -48,6 +74,15 @@ CREATE TABLE `ledger_entries` (
 CREATE INDEX `idx_ledger_person_date` ON `ledger_entries` (`person_id`,`date`);--> statement-breakpoint
 CREATE INDEX `idx_ledger_site_date` ON `ledger_entries` (`site_id`,`date`);--> statement-breakpoint
 CREATE INDEX `idx_ledger_by_date` ON `ledger_entries` (`created_by`,`date`);--> statement-breakpoint
+CREATE INDEX `idx_ledger_category_date` ON `ledger_entries` (`category_id`,`date`);--> statement-breakpoint
+CREATE TABLE `person_balances` (
+	`person_id` integer PRIMARY KEY NOT NULL,
+	`credit` real DEFAULT 0 NOT NULL,
+	`debit` real DEFAULT 0 NOT NULL,
+	`entries` integer DEFAULT 0 NOT NULL,
+	FOREIGN KEY (`person_id`) REFERENCES `persons`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `person_types` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`name` text NOT NULL,
@@ -91,6 +126,16 @@ CREATE TABLE `sites` (
 	`status` text DEFAULT 'active' NOT NULL,
 	`is_active` integer DEFAULT 1 NOT NULL,
 	`created_at` text DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `user_balances` (
+	`user_id` integer PRIMARY KEY NOT NULL,
+	`credit` real DEFAULT 0 NOT NULL,
+	`debit` real DEFAULT 0 NOT NULL,
+	`entries` integer DEFAULT 0 NOT NULL,
+	`expense` real DEFAULT 0 NOT NULL,
+	`expenses` integer DEFAULT 0 NOT NULL,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE `user_site_access` (

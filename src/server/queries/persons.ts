@@ -1,9 +1,11 @@
 import "server-only";
-import { and, asc, desc, eq, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   categories,
+  ledgerBalances,
   ledgerEntries,
+  personBalances,
   persons,
   personTypes,
   siteMembership,
@@ -14,13 +16,20 @@ import type { CurrentUser } from "@/server/auth/jwt";
 import { isShowAllUsers } from "@/server/permissions";
 import { afterCursor, decodeCursor, PAGE_SIZE, toPage } from "./pagination";
 import {
+  balanceCredit,
+  balanceDebit,
+  balanceEntries,
+  balancesCover,
   countAll,
   creditSum,
   debitSum,
   escapeLike,
   getAllowedSites,
+  isLedgerFiltered,
+  ledgerBalanceScope,
   ledgerScope,
   type ParsedFilters,
+  type ScopeOptions,
   siteAccessCondition,
 } from "./shared";
 
@@ -44,7 +53,7 @@ export async function getPersonsData(params: {
   const allowed = await getAllowedSites(user);
   // Always the logged-in user's own entries, admins included: the list shows
   // only persons they have dealt with, and the balance between the two of them.
-  const ledgerOn = ledgerScope({
+  const balanceOn = ledgerBalanceScope({
     siteId,
     user,
     everyone: false,
@@ -60,8 +69,9 @@ export async function getPersonsData(params: {
       )
     : undefined;
 
-  // single query: persons INNER JOIN their scoped ledger rows, aggregated per
-  // person — the inner join drops persons with no entries by this user
+  // single query: persons INNER JOIN their scoped ledger_balances rows (one
+  // per site), summed per person — the inner join drops persons with no
+  // entries by this user, and rows left at zero by deletes are skipped
   const rows = await db
     .select({
       id: persons.id,
@@ -69,15 +79,18 @@ export async function getPersonsData(params: {
       mobile: persons.mobile,
       isActive: persons.isActive,
       type: personTypes.name,
-      credit: creditSum,
-      debit: debitSum,
-      entries: sql<number>`COUNT(${ledgerEntries.id})`,
+      credit: balanceCredit,
+      debit: balanceDebit,
     })
     .from(persons)
     .innerJoin(personTypes, eq(persons.personTypeId, personTypes.id))
     .innerJoin(
-      ledgerEntries,
-      and(eq(ledgerEntries.personId, persons.id), ledgerOn),
+      ledgerBalances,
+      and(
+        eq(ledgerBalances.personId, persons.id),
+        gt(ledgerBalances.entries, 0),
+        balanceOn,
+      ),
     )
     .where(
       and(
@@ -121,23 +134,25 @@ type PassbookParams = {
   user: CurrentUser;
 };
 
-async function passbookWhere({
-  personId,
+async function passbookScope({
   scope,
   allUsers,
   filter,
   user,
-}: PassbookParams) {
-  const allowed = await getAllowedSites(user);
+}: PassbookParams): Promise<ScopeOptions> {
+  return {
+    siteId: scope,
+    user,
+    everyone: isShowAllUsers(user, allUsers),
+    allowed: await getAllowedSites(user),
+    filter,
+  };
+}
+
+async function passbookWhere(params: PassbookParams) {
   return and(
-    eq(ledgerEntries.personId, personId),
-    ledgerScope({
-      siteId: scope,
-      user,
-      everyone: isShowAllUsers(user, allUsers),
-      allowed,
-      filter,
-    }),
+    eq(ledgerEntries.personId, params.personId),
+    ledgerScope(await passbookScope(params)),
   );
 }
 
@@ -179,20 +194,63 @@ export type PassbookRow = Awaited<
   ReturnType<typeof getPassbookPage>
 >["items"][number];
 
+/**
+ * Totals and count over every matching entry, read from the balance tables
+ * unless a date / category filter needs the entries themselves. "Show all
+ * users" across all sites with no filter is every entry of the person: the
+ * one person_balances row.
+ */
+async function passbookTotals(params: PassbookParams) {
+  if (
+    isShowAllUsers(params.user, params.allUsers) &&
+    params.scope < 0 &&
+    !isLedgerFiltered(params.filter)
+  ) {
+    const [row] = await db
+      .select({
+        credit: personBalances.credit,
+        debit: personBalances.debit,
+        count: personBalances.entries,
+      })
+      .from(personBalances)
+      .where(eq(personBalances.personId, params.personId))
+      .limit(1);
+    return row;
+  }
+  if (balancesCover(params.filter)) {
+    const [row] = await db
+      .select({
+        credit: balanceCredit,
+        debit: balanceDebit,
+        count: balanceEntries,
+      })
+      .from(ledgerBalances)
+      .where(
+        and(
+          eq(ledgerBalances.personId, params.personId),
+          ledgerBalanceScope(await passbookScope(params)),
+        ),
+      );
+    return row;
+  }
+  const [row] = await db
+    .select({ credit: creditSum, debit: debitSum, count: countAll })
+    .from(ledgerEntries)
+    .where(await passbookWhere(params));
+  return row;
+}
+
 /** The person, totals and count over every matching entry, and the first page. */
 export async function getPassbookData(params: PassbookParams) {
   // In parallel: for an unknown person the totals and page are just discarded.
-  const [[personRow], [totals], entries] = await Promise.all([
+  const [[personRow], totals, entries] = await Promise.all([
     db
       .select({ person: persons, personTypeName: personTypes.name })
       .from(persons)
       .innerJoin(personTypes, eq(persons.personTypeId, personTypes.id))
       .where(eq(persons.id, params.personId))
       .limit(1),
-    db
-      .select({ credit: creditSum, debit: debitSum, count: countAll })
-      .from(ledgerEntries)
-      .where(await passbookWhere(params)),
+    passbookTotals(params),
     getPassbookPage(params),
   ]);
   if (!personRow) return null;

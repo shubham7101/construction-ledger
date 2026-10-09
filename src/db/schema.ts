@@ -200,3 +200,80 @@ export const expenses = sqliteTable(
     index("idx_expense_category_date").on(table.categoryId, table.date),
   ],
 );
+
+/**
+ * Per-user totals over the entries and expenses that user created: the
+ * overview hero and counts. Derived from ledger_entries / expenses and
+ * re-derived in the same batch as every write (see server/balances.ts).
+ */
+export const userBalances = sqliteTable("user_balances", {
+  userId: integer("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  credit: real("credit").notNull().default(0),
+  debit: real("debit").notNull().default(0), // ledger debits only
+  entries: integer("entries").notNull().default(0),
+  expense: real("expense").notNull().default(0),
+  expenses: integer("expenses").notNull().default(0),
+});
+
+/**
+ * Per-person totals over all their ledger entries, by every user: the
+ * passbook's "Show all users" totals across all sites. Kept in sync like
+ * user_balances.
+ */
+export const personBalances = sqliteTable("person_balances", {
+  personId: integer("person_id")
+    .primaryKey()
+    .references(() => persons.id, { onDelete: "cascade" }),
+  credit: real("credit").notNull().default(0),
+  debit: real("debit").notNull().default(0),
+  entries: integer("entries").notNull().default(0),
+});
+
+/**
+ * Ledger totals per (creator, person, site): what the persons list, passbook,
+ * site page and ledgers list sum when no date / category filter applies.
+ * site_id 0 = "No site" (a NULL key column would never conflict, so upserts
+ * could not find the row). Kept by server/balances.ts like the tables above;
+ * a row stays at zero once its last entry is gone.
+ */
+export const ledgerBalances = sqliteTable(
+  "ledger_balances",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    personId: integer("person_id")
+      .notNull()
+      .references(() => persons.id, { onDelete: "cascade" }),
+    siteId: integer("site_id").notNull(),
+    credit: real("credit").notNull().default(0),
+    debit: real("debit").notNull().default(0),
+    entries: integer("entries").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.personId, table.siteId] }),
+    index("idx_lb_person_site").on(table.personId, table.siteId),
+    index("idx_lb_site").on(table.siteId),
+  ],
+);
+
+/** Expense totals per (creator, site), kept like ledger_balances. */
+export const expenseBalances = sqliteTable(
+  "expense_balances",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    siteId: integer("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    total: real("total").notNull().default(0),
+    count: integer("count").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.siteId] }),
+    index("idx_eb_site").on(table.siteId),
+  ],
+);

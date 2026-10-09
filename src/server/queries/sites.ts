@@ -3,7 +3,9 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   categories,
+  expenseBalances,
   expenses,
+  ledgerBalances,
   ledgerEntries,
   persons,
   siteMembership,
@@ -14,12 +16,20 @@ import type { CurrentUser } from "@/server/auth/jwt";
 import { isShowAllUsers } from "@/server/permissions";
 import { afterFeedCursor, decodeCursor, PAGE_SIZE, toPage } from "./pagination";
 import {
+  balanceCredit,
+  balanceDebit,
+  balanceEntries,
+  balanceExpense,
+  balanceExpenses,
+  balancesCover,
   countAll,
   creditSum,
   debitSum,
+  expenseBalanceScope,
   expenseScope,
   expenseTotal,
   getAllowedSites,
+  ledgerBalanceScope,
   ledgerScope,
   type ParsedFilters,
   type ScopeOptions,
@@ -44,6 +54,7 @@ async function feedScope({ siteId, allUsers, filter, user }: FeedParams) {
   };
   const feedType = filter?.t;
   return {
+    scope,
     ledgerWhere: ledgerScope(scope),
     expenseWhere: expenseScope(scope),
     includeLedger: feedType !== "Expenses Only",
@@ -184,20 +195,36 @@ export async function getAccessibleSite(siteId: number, user: CurrentUser) {
  * Returns null when the site is inactive or not accessible.
  */
 export async function getSiteDetail(params: FeedParams) {
-  const { ledgerWhere, expenseWhere, includeLedger, includeExpenses } =
+  const { scope, ledgerWhere, expenseWhere, includeLedger, includeExpenses } =
     await feedScope(params);
+  // From the balance tables unless a date / category filter needs the rows.
+  const fromBalances = balancesCover(params.filter);
 
   // In parallel: for an inaccessible site the totals and feed are discarded.
   const [site, [ledgerRes], [expenseRes], feed] = await Promise.all([
     getAccessibleSite(params.siteId, params.user),
-    db
-      .select({ credit: creditSum, debit: debitSum, count: countAll })
-      .from(ledgerEntries)
-      .where(ledgerWhere),
-    db
-      .select({ total: expenseTotal, count: countAll })
-      .from(expenses)
-      .where(expenseWhere),
+    fromBalances
+      ? db
+          .select({
+            credit: balanceCredit,
+            debit: balanceDebit,
+            count: balanceEntries,
+          })
+          .from(ledgerBalances)
+          .where(ledgerBalanceScope(scope))
+      : db
+          .select({ credit: creditSum, debit: debitSum, count: countAll })
+          .from(ledgerEntries)
+          .where(ledgerWhere),
+    fromBalances
+      ? db
+          .select({ total: balanceExpense, count: balanceExpenses })
+          .from(expenseBalances)
+          .where(expenseBalanceScope(scope))
+      : db
+          .select({ total: expenseTotal, count: countAll })
+          .from(expenses)
+          .where(expenseWhere),
     getFeedPage(params),
   ]);
   if (!site) return null;
@@ -222,29 +249,47 @@ export async function getSiteDetail(params: FeedParams) {
  */
 export async function getSitePersons(params: FeedParams) {
   const { siteId, allUsers, filter, user } = params;
-  const allowed = await getAllowedSites(user);
-  const ledgerOn = ledgerScope({
+  const scope: ScopeOptions = {
     siteId,
     user,
     everyone: isShowAllUsers(user, allUsers),
-    allowed,
+    allowed: await getAllowedSites(user),
     // dates apply; category / person filters are for the feed, not the roll-up
     filter: filter && { dm: filter.dm, d1: filter.d1, d2: filter.d2 },
-  });
+  };
 
-  const rows = await db
-    .select({
-      id: persons.id,
-      name: persons.name,
-      credit: creditSum,
-      debit: debitSum,
-    })
-    .from(siteMembership)
-    .innerJoin(persons, eq(siteMembership.personId, persons.id))
-    .leftJoin(
-      ledgerEntries,
-      and(eq(ledgerEntries.personId, persons.id), ledgerOn),
-    )
+  // From ledger_balances unless a date filter needs the entries themselves.
+  const rows = await (balancesCover(scope.filter)
+    ? db
+        .select({
+          id: persons.id,
+          name: persons.name,
+          credit: balanceCredit,
+          debit: balanceDebit,
+        })
+        .from(siteMembership)
+        .innerJoin(persons, eq(siteMembership.personId, persons.id))
+        .leftJoin(
+          ledgerBalances,
+          and(
+            eq(ledgerBalances.personId, persons.id),
+            ledgerBalanceScope(scope),
+          ),
+        )
+    : db
+        .select({
+          id: persons.id,
+          name: persons.name,
+          credit: creditSum,
+          debit: debitSum,
+        })
+        .from(siteMembership)
+        .innerJoin(persons, eq(siteMembership.personId, persons.id))
+        .leftJoin(
+          ledgerEntries,
+          and(eq(ledgerEntries.personId, persons.id), ledgerScope(scope)),
+        )
+  )
     .where(eq(siteMembership.siteId, siteId))
     .groupBy(persons.id)
     .orderBy(asc(sql`lower(${persons.name})`));

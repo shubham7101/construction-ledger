@@ -3,7 +3,9 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   categories,
+  expenseBalances,
   expenses,
+  ledgerBalances,
   ledgerEntries,
   persons,
   sites,
@@ -19,14 +21,23 @@ import {
   toPage,
 } from "./pagination";
 import {
+  balanceCredit,
+  balanceDebit,
+  balanceEntries,
+  balanceExpense,
+  balanceExpenses,
+  balancesCover,
   countAll,
   creditSum,
   debitSum,
+  expenseBalanceScope,
   expenseScope,
   expenseTotal,
   getAllowedSites,
+  ledgerBalanceScope,
   ledgerScope,
   type ParsedFilters,
+  type ScopeOptions,
 } from "./shared";
 
 export interface ListParams {
@@ -40,21 +51,33 @@ export interface ListParams {
 /* Ledgers                                                             */
 /* ------------------------------------------------------------------ */
 
-async function ledgersWhere({ siteId, allUsers, filter, user }: ListParams) {
-  const allowed = await getAllowedSites(user);
+async function listScope({
+  siteId,
+  allUsers,
+  filter,
+  user,
+}: ListParams): Promise<ScopeOptions> {
+  return {
+    siteId,
+    user,
+    everyone: isShowAllUsers(user, allUsers),
+    allowed: await getAllowedSites(user),
+    filter,
+  };
+}
+
+/** "credit" / "debit", or undefined for both. */
+function typeFilter(filter?: ParsedFilters) {
   // accept "credit" / "Credit" / "all" / "All" regardless of how the URL was parsed
-  const typeFilter = filter?.t?.toLowerCase();
+  const t = filter?.t?.toLowerCase();
+  return t === "credit" || t === "debit" ? t : undefined;
+}
+
+async function ledgersWhere(params: ListParams) {
+  const type = typeFilter(params.filter);
   return and(
-    ledgerScope({
-      siteId,
-      user,
-      everyone: isShowAllUsers(user, allUsers),
-      allowed,
-      filter,
-    }),
-    typeFilter === "credit" || typeFilter === "debit"
-      ? eq(ledgerEntries.type, typeFilter)
-      : undefined,
+    ledgerScope(await listScope(params)),
+    type ? eq(ledgerEntries.type, type) : undefined,
   );
 }
 
@@ -99,8 +122,26 @@ export type LedgerRow = Awaited<
   ReturnType<typeof getLedgersPage>
 >["items"][number];
 
-/** Count and totals over the whole filtered list (not just the loaded page). */
+/**
+ * Count and totals over the whole filtered list (not just the loaded page),
+ * from ledger_balances unless a date / category / type filter needs the rows.
+ */
 export async function getLedgersSummary(params: ListParams) {
+  if (balancesCover(params.filter) && !typeFilter(params.filter)) {
+    const [row] = await db
+      .select({
+        count: balanceEntries,
+        credit: balanceCredit,
+        debit: balanceDebit,
+      })
+      .from(ledgerBalances)
+      .where(ledgerBalanceScope(await listScope(params)));
+    return {
+      count: row?.count ?? 0,
+      credit: row?.credit ?? 0,
+      debit: row?.debit ?? 0,
+    };
+  }
   const [row] = await db
     .select({ count: countAll, credit: creditSum, debit: debitSum })
     .from(ledgerEntries)
@@ -116,15 +157,8 @@ export async function getLedgersSummary(params: ListParams) {
 /* Expenses                                                            */
 /* ------------------------------------------------------------------ */
 
-async function expensesWhere({ siteId, allUsers, filter, user }: ListParams) {
-  const allowed = await getAllowedSites(user);
-  return expenseScope({
-    siteId,
-    user,
-    everyone: isShowAllUsers(user, allUsers),
-    allowed,
-    filter,
-  });
+async function expensesWhere(params: ListParams) {
+  return expenseScope(await listScope(params));
 }
 
 /** One page of expenses, newest first. */
@@ -163,7 +197,15 @@ export type ExpenseRow = Awaited<
   ReturnType<typeof getExpensesPage>
 >["items"][number];
 
+/** As getLedgersSummary, from expense_balances when no filter needs the rows. */
 export async function getExpensesSummary(params: ListParams) {
+  if (balancesCover(params.filter)) {
+    const [row] = await db
+      .select({ count: balanceExpenses, total: balanceExpense })
+      .from(expenseBalances)
+      .where(expenseBalanceScope(await listScope(params)));
+    return { count: row?.count ?? 0, total: row?.total ?? 0 };
+  }
   const [row] = await db
     .select({ count: countAll, total: expenseTotal })
     .from(expenses)

@@ -15,12 +15,16 @@ import { normalizeName } from "@/lib/normalize";
 import { hashPassword } from "@/server/auth/password";
 import {
   categories,
+  expenseBalances,
   expenses,
+  ledgerBalances,
   ledgerEntries,
+  personBalances,
   persons,
   personTypes,
   siteMembership,
   sites,
+  userBalances,
   userSiteAccess,
   users,
 } from "./schema";
@@ -40,6 +44,7 @@ const reset = process.argv.includes("--reset");
 
 // Loaded only after the check above: opening it already talks to the database.
 const { db } = await import("./index");
+const { rebuildBalances } = await import("@/server/balances");
 
 const [{ entries }] = await db
   .select({
@@ -306,6 +311,10 @@ const PASSWORD = "Demo@1234";
 if (reset) {
   // Children first, so foreign keys never block the deletes.
   for (const table of [
+    userBalances,
+    personBalances,
+    ledgerBalances,
+    expenseBalances,
     ledgerEntries,
     expenses,
     siteMembership,
@@ -602,6 +611,9 @@ await db.run(sql`
   INSERT OR IGNORE INTO site_membership (person_id, site_id)
   SELECT DISTINCT person_id, site_id FROM ledger_entries WHERE site_id IS NOT NULL
 `);
+
+// So are the balance tables.
+await rebuildBalances();
 
 /* ------------------------------------------------------------------ */
 /* Summary                                                             */

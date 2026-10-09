@@ -1,7 +1,7 @@
 "use server";
 
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   categories,
@@ -13,6 +13,7 @@ import {
 } from "@/db/schema";
 import { ledgerEntrySchema } from "@/lib/validators";
 import { requireUser } from "@/server/auth/jwt";
+import { applyLedger, CHANGED_MEANWHILE } from "@/server/balances";
 import {
   canAccessSite,
   canEditOrDeleteRecord,
@@ -54,12 +55,30 @@ async function findOwnership(id: number) {
       createdBy: ledgerEntries.createdBy,
       personId: ledgerEntries.personId,
       siteId: ledgerEntries.siteId,
+      type: ledgerEntries.type,
+      amount: ledgerEntries.amount,
     })
     .from(ledgerEntries)
     .where(eq(ledgerEntries.id, id))
     .limit(1);
   return row;
 }
+
+type ExistingEntry = NonNullable<Awaited<ReturnType<typeof findOwnership>>>;
+
+/**
+ * The entry, only while it still has the values read by findOwnership: the
+ * balance deltas are worked out from them (see server/balances.ts).
+ */
+const unchangedSince = (id: number, e: ExistingEntry) =>
+  and(
+    eq(ledgerEntries.id, id),
+    eq(ledgerEntries.createdBy, e.createdBy),
+    eq(ledgerEntries.personId, e.personId),
+    eq(ledgerEntries.type, e.type),
+    eq(ledgerEntries.amount, e.amount),
+    sql`${ledgerEntries.siteId} IS ${e.siteId}`, // IS: also matches "No site"
+  );
 
 /**
  * Brings site_membership in line with ledger_entries for one (person, site)
@@ -99,6 +118,8 @@ export async function createLedgerEntryAction(
 
     await db.batch([
       db.insert(ledgerEntries).values({ ...data, createdBy: user.id }),
+      // Straight after the insert: the deltas run only if it wrote a row.
+      ...applyLedger({ ...data, createdBy: user.id }, 1),
       ...syncMembership(data.personId, data.siteId),
     ]);
 
@@ -135,15 +156,22 @@ export async function updateLedgerEntryAction(
       return { ok: false, error: PERSON_INACTIVE };
     }
 
-    await db.batch([
+    const [written] = await db.batch([
       db
         .update(ledgerEntries)
         .set({ ...data, updatedAt: new Date().toISOString() })
-        .where(eq(ledgerEntries.id, id)),
+        .where(unchangedSince(id, existing)),
+      // Take the old values off, then add the new ones: this covers a changed
+      // amount or type and a move to another person. The creator never changes.
+      ...applyLedger(existing, -1),
+      ...applyLedger({ ...data, createdBy: existing.createdBy }, 1),
       // The entry may have moved person or site: fix both the old and new pair.
       ...syncMembership(existing.personId, existing.siteId),
       ...syncMembership(data.personId, data.siteId),
     ]);
+    if (written.rowsAffected === 0) {
+      return { ok: false, error: CHANGED_MEANWHILE };
+    }
 
     revalidateLedgerPages(data.personId);
     // The entry may have moved to another person; refresh the old passbook too.
@@ -166,10 +194,14 @@ export async function deleteLedgerEntryAction(
       return { ok: false, error: "Unauthorized to delete this entry" };
     }
 
-    await db.batch([
-      db.delete(ledgerEntries).where(eq(ledgerEntries.id, id)),
+    const [written] = await db.batch([
+      db.delete(ledgerEntries).where(unchangedSince(id, existing)),
+      ...applyLedger(existing, -1),
       ...syncMembership(existing.personId, existing.siteId),
     ]);
+    if (written.rowsAffected === 0) {
+      return { ok: false, error: CHANGED_MEANWHILE };
+    }
 
     revalidateLedgerPages(existing.personId);
     return { ok: true };

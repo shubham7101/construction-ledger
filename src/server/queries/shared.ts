@@ -12,8 +12,14 @@ import {
 } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { cache } from "react";
-import { expenses, ledgerEntries } from "@/db/schema";
+import {
+  expenseBalances,
+  expenses,
+  ledgerBalances,
+  ledgerEntries,
+} from "@/db/schema";
 import type { CurrentUser } from "@/server/auth/jwt";
+import { NO_SITE } from "@/server/balances";
 import { getAllowedSiteIds } from "@/server/permissions";
 
 export interface ParsedFilters {
@@ -102,6 +108,15 @@ export function ledgerScope({
   );
 }
 
+/** True when the filter narrows ledger rows (date, category or person). */
+export function isLedgerFiltered(filter?: ParsedFilters): boolean {
+  return (
+    buildDateConditions(ledgerEntries.date, filter) !== undefined ||
+    has(filter?.categoryId) ||
+    has(filter?.personId)
+  );
+}
+
 export function expenseScope({
   siteId,
   user,
@@ -118,6 +133,65 @@ export function expenseScope({
       ? eq(expenses.categoryId, filter.categoryId)
       : undefined,
     // Expenses aren't tied to a person: a person filter matches none.
+    has(filter?.personId) ? sql`0` : undefined,
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Balance tables                                                      */
+/* ------------------------------------------------------------------ */
+
+// Sums over ledger_balances / expense_balances rows.
+export const balanceCredit = sql<number>`COALESCE(SUM(${ledgerBalances.credit}), 0)`;
+export const balanceDebit = sql<number>`COALESCE(SUM(${ledgerBalances.debit}), 0)`;
+export const balanceEntries = sql<number>`COALESCE(SUM(${ledgerBalances.entries}), 0)`;
+export const balanceExpense = sql<number>`COALESCE(SUM(${expenseBalances.total}), 0)`;
+export const balanceExpenses = sql<number>`COALESCE(SUM(${expenseBalances.count}), 0)`;
+
+/**
+ * The balance tables hold totals per creator, person and site, so they can
+ * stand in for any scope except a date or category filter.
+ */
+export const balancesCover = (filter?: ParsedFilters) =>
+  buildDateConditions(ledgerEntries.date, filter) === undefined &&
+  !has(filter?.categoryId);
+
+/**
+ * The ledger_balances rows whose sums equal ledgerScope(opts) totals. Only
+ * valid when balancesCover(opts.filter).
+ */
+export function ledgerBalanceScope({
+  siteId,
+  user,
+  everyone,
+  allowed,
+  filter,
+}: ScopeOptions) {
+  return and(
+    siteId >= 0 ? eq(ledgerBalances.siteId, siteId) : undefined,
+    everyone ? undefined : eq(ledgerBalances.userId, user.id),
+    // As siteAccessCondition with "No site" included; it is stored as 0.
+    allowed === null
+      ? undefined
+      : inArray(ledgerBalances.siteId, [...allowed, NO_SITE]),
+    has(filter?.personId)
+      ? eq(ledgerBalances.personId, filter.personId)
+      : undefined,
+  );
+}
+
+/** As ledgerBalanceScope, for expenseScope(opts) and expense_balances. */
+export function expenseBalanceScope({
+  siteId,
+  user,
+  everyone,
+  allowed,
+  filter,
+}: ScopeOptions) {
+  return and(
+    siteId >= 0 ? eq(expenseBalances.siteId, siteId) : undefined,
+    everyone ? undefined : eq(expenseBalances.userId, user.id),
+    siteAccessCondition(expenseBalances.siteId, allowed, false),
     has(filter?.personId) ? sql`0` : undefined,
   );
 }

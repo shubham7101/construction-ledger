@@ -61,7 +61,7 @@ mock.module("next/headers", () => ({
 const { db } = await import("@/db");
 const schema = await import("@/db/schema");
 const { migrate } = await import("drizzle-orm/libsql/migrator");
-const { and, eq } = await import("drizzle-orm");
+const { and, eq, sql } = await import("drizzle-orm");
 const { compareSync, hashSync } = await import("bcryptjs");
 const { SignJWT } = await import("jose");
 const actions = {
@@ -72,6 +72,10 @@ const actions = {
   ...(await import("@/server/actions/profile")),
   ...(await import("@/server/actions/auth")),
 };
+
+const { rebuildBalances } = await import("@/server/balances");
+/** Tests that insert rows directly (not via the actions) refresh the totals. */
+const syncBalances = () => rebuildBalances();
 
 // --- Fixtures created once for the whole run --------------------------------
 let adminId: number;
@@ -1649,6 +1653,7 @@ describe("keyset pagination", () => {
         createdBy: adminId,
       })),
     );
+    await syncBalances();
 
     const user = {
       id: adminId,
@@ -1727,6 +1732,7 @@ describe("site details totals", () => {
       categoryId,
       createdBy: adminId,
     });
+    await syncBalances();
 
     const admin = {
       id: adminId,
@@ -2048,6 +2054,7 @@ describe("categories view and filters", () => {
       { personId, siteId: site.id },
       { personId: p2.id, siteId: site.id },
     ]);
+    await syncBalances();
 
     const user = {
       id: adminId,
@@ -2090,5 +2097,454 @@ describe("categories view and filters", () => {
       { id: personId, name: "Ramesh Kumar", net: 500 },
       { id: p2.id, name: "Second Person", net: 200 },
     ]);
+  });
+});
+
+describe("balance tables", () => {
+  /** Every stored row equals a live aggregate over the source tables. */
+  async function expectBalancesInSync() {
+    const live = sql`SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END)`;
+    const liveDebit = sql`SUM(CASE WHEN type = 'debit' THEN amount ELSE 0 END)`;
+    const ledgerByUser = await db.all<{
+      id: number;
+      credit: number;
+      debit: number;
+      entries: number;
+    }>(
+      sql`SELECT created_by AS id, ${live} AS credit, ${liveDebit} AS debit, COUNT(*) AS entries FROM ledger_entries GROUP BY created_by`,
+    );
+    const expenseByUser = await db.all<{
+      id: number;
+      expense: number;
+      expenses: number;
+    }>(
+      sql`SELECT created_by AS id, SUM(amount) AS expense, COUNT(*) AS expenses FROM expenses GROUP BY created_by`,
+    );
+    const byPerson = await db.all<{
+      id: number;
+      credit: number;
+      debit: number;
+      entries: number;
+    }>(
+      sql`SELECT person_id AS id, ${live} AS credit, ${liveDebit} AS debit, COUNT(*) AS entries FROM ledger_entries GROUP BY person_id`,
+    );
+
+    for (const u of await db.select().from(schema.userBalances)) {
+      const l = ledgerByUser.find((r) => r.id === u.userId);
+      const e = expenseByUser.find((r) => r.id === u.userId);
+      expect(u).toEqual({
+        userId: u.userId,
+        credit: l?.credit ?? 0,
+        debit: l?.debit ?? 0,
+        entries: l?.entries ?? 0,
+        expense: e?.expense ?? 0,
+        expenses: e?.expenses ?? 0,
+      });
+    }
+    for (const p of await db.select().from(schema.personBalances)) {
+      const l = byPerson.find((r) => r.id === p.personId);
+      expect(p).toEqual({
+        personId: p.personId,
+        credit: l?.credit ?? 0,
+        debit: l?.debit ?? 0,
+        entries: l?.entries ?? 0,
+      });
+    }
+    // Everyone with entries or expenses has a row.
+    const userIds = (await db.select().from(schema.userBalances)).map(
+      (r) => r.userId,
+    );
+    for (const r of [...ledgerByUser, ...expenseByUser]) {
+      expect(userIds).toContain(r.id);
+    }
+    const personIds = (await db.select().from(schema.personBalances)).map(
+      (r) => r.personId,
+    );
+    for (const r of byPerson) expect(personIds).toContain(r.id);
+
+    // ledger_balances / expense_balances: every group has a matching row and
+    // every row matches its group (rows left at zero have no group).
+    const byKey = await db.all<{
+      userId: number;
+      personId: number;
+      siteId: number;
+      credit: number;
+      debit: number;
+      entries: number;
+    }>(
+      sql`SELECT created_by AS userId, person_id AS personId, COALESCE(site_id, 0) AS siteId, ${live} AS credit, ${liveDebit} AS debit, COUNT(*) AS entries FROM ledger_entries GROUP BY 1, 2, 3`,
+    );
+    const lbRows = await db.select().from(schema.ledgerBalances);
+    for (const row of lbRows) {
+      const g = byKey.find(
+        (r) =>
+          r.userId === row.userId &&
+          r.personId === row.personId &&
+          r.siteId === row.siteId,
+      );
+      expect(row).toEqual({
+        userId: row.userId,
+        personId: row.personId,
+        siteId: row.siteId,
+        credit: g?.credit ?? 0,
+        debit: g?.debit ?? 0,
+        entries: g?.entries ?? 0,
+      });
+    }
+    expect(lbRows.filter((r) => r.entries > 0).length).toBe(byKey.length);
+
+    const bySite = await db.all<{
+      userId: number;
+      siteId: number;
+      total: number;
+      count: number;
+    }>(
+      sql`SELECT created_by AS userId, site_id AS siteId, SUM(amount) AS total, COUNT(*) AS count FROM expenses GROUP BY 1, 2`,
+    );
+    const ebRows = await db.select().from(schema.expenseBalances);
+    for (const row of ebRows) {
+      const g = bySite.find(
+        (r) => r.userId === row.userId && r.siteId === row.siteId,
+      );
+      expect(row).toEqual({
+        userId: row.userId,
+        siteId: row.siteId,
+        total: g?.total ?? 0,
+        count: g?.count ?? 0,
+      });
+    }
+    expect(ebRows.filter((r) => r.count > 0).length).toBe(bySite.length);
+  }
+
+  it("stay in sync through ledger and expense create / update / delete", async () => {
+    const { getOverviewData } = await import("@/server/queries/overview");
+    const { getPassbookData } = await import("@/server/queries/persons");
+
+    // Earlier tests insert rows directly, bypassing the actions.
+    await rebuildBalances();
+    await expectBalancesInSync();
+
+    const [p2] = await db
+      .insert(schema.persons)
+      .values({ name: "Balance Person", mobile: "9555500001", personTypeId })
+      .returning();
+    const entry = (
+      pid: number,
+      type: "credit" | "debit",
+      amount: number,
+      note: string,
+    ) => ({
+      personId: pid,
+      type,
+      amount,
+      date: "2026-09-02",
+      siteId: siteAId,
+      categoryId,
+      mode: "cash",
+      note,
+    });
+    const idByNote = async (note: string) => {
+      const [row] = await db
+        .select({ id: schema.ledgerEntries.id })
+        .from(schema.ledgerEntries)
+        .where(eq(schema.ledgerEntries.note, note));
+      return row.id;
+    };
+
+    const user = {
+      id: adminId,
+      name: "Admin",
+      mobile: "9000000001",
+      role: "admin" as const,
+    };
+    const before = await getOverviewData({ siteId: -1, user });
+
+    // Regular user's entry, then an admin edit moves it to p2.
+    await grantSiteAccess(regularId, siteAId);
+    await signInAs("regular");
+    await expectOk(
+      "regular credit",
+      actions.createLedgerEntryAction(
+        entry(personId, "credit", 700, "BAL_REGULAR"),
+      ),
+    );
+    await signInAs("admin");
+    await expectOk(
+      "admin credit",
+      actions.createLedgerEntryAction(entry(p2.id, "credit", 300, "BAL_A1")),
+    );
+    await expectOk(
+      "admin debit",
+      actions.createLedgerEntryAction(entry(p2.id, "debit", 120, "BAL_A2")),
+    );
+    await expectBalancesInSync();
+
+    await expectOk(
+      "admin moves regular's entry",
+      actions.updateLedgerEntryAction(
+        await idByNote("BAL_REGULAR"),
+        entry(p2.id, "debit", 650, "BAL_REGULAR"),
+      ),
+    );
+    await expectBalancesInSync();
+    await expectOk(
+      "delete",
+      actions.deleteLedgerEntryAction(await idByNote("BAL_A2")),
+    );
+    await expectBalancesInSync();
+
+    await expectOk(
+      "expense",
+      actions.createExpenseAction({
+        amount: 400,
+        date: "2026-09-02",
+        siteId: siteAId,
+        categoryId,
+        note: "BAL_EXP",
+      }),
+    );
+    const [exp] = await db
+      .select({ id: schema.expenses.id })
+      .from(schema.expenses)
+      .where(eq(schema.expenses.note, "BAL_EXP"));
+    await expectOk(
+      "expense update",
+      actions.updateExpenseAction(exp.id, {
+        amount: 450,
+        date: "2026-09-02",
+        siteId: siteAId,
+        categoryId,
+        note: "BAL_EXP",
+      }),
+    );
+    await expectBalancesInSync();
+
+    // The admin's hero: own credits in, own debits + expenses out.
+    const after = await getOverviewData({ siteId: -1, user });
+    expect(after.credit - before.credit).toBe(300);
+    expect(after.debit - before.debit).toBe(450);
+    expect(after.entriesCount - before.entriesCount).toBe(1);
+    expect(after.expensesCount - before.expensesCount).toBe(1);
+
+    await expectOk("expense delete", actions.deleteExpenseAction(exp.id));
+    await expectBalancesInSync();
+
+    // Passbook "Show all users", all sites, no filter: from person_balances,
+    // and equal to the live SUM a site tab would use.
+    const passbook = await getPassbookData({
+      personId: p2.id,
+      scope: -1,
+      allUsers: "1",
+      filter: { dm: "any" },
+      user,
+    });
+    expect(passbook).toMatchObject({
+      credit: 300,
+      debit: 650,
+      net: -350,
+      count: 2,
+    });
+    const onSite = await getPassbookData({
+      personId: p2.id,
+      scope: siteAId,
+      allUsers: "1",
+      filter: { dm: "any" },
+      user,
+    });
+    expect(onSite).toMatchObject({ credit: 300, debit: 650, count: 2 });
+
+    await revokeSiteAccess(regularId, siteAId);
+  });
+
+  it("skips every delta when the row write matched nothing", async () => {
+    const { applyLedger, applyExpense } = await import("@/server/balances");
+    const snapshot = async () => ({
+      users: await db.select().from(schema.userBalances),
+      persons: await db.select().from(schema.personBalances),
+      ledger: await db.select().from(schema.ledgerBalances),
+      expense: await db.select().from(schema.expenseBalances),
+    });
+    const before = await snapshot();
+
+    // What an action's batch looks like when a concurrent request already
+    // changed or deleted the row: the guarded write affects nothing.
+    const [written] = await db.batch([
+      db.delete(schema.ledgerEntries).where(sql`0`),
+      ...applyLedger(
+        {
+          type: "credit",
+          amount: 500,
+          createdBy: adminId,
+          personId,
+          siteId: siteAId,
+        },
+        -1,
+      ),
+      ...applyLedger(
+        {
+          type: "debit",
+          amount: 70,
+          createdBy: regularId,
+          personId,
+          siteId: null,
+        },
+        1,
+      ),
+      ...applyExpense({ createdBy: adminId, siteId: siteAId, amount: 100 }, -1),
+    ]);
+    expect(written.rowsAffected).toBe(0);
+    expect(await snapshot()).toEqual(before);
+
+    // And when the write does land, every delta in the chain applies.
+    await expectOk(
+      "guarded create",
+      actions.createExpenseAction({
+        amount: 100,
+        date: "2026-09-03",
+        siteId: siteAId,
+        categoryId,
+        note: "BAL_GUARD",
+      }),
+    );
+    await expectBalancesInSync();
+  });
+
+  it("pages read the same totals from the balance tables as from the rows", async () => {
+    const { getLedgersSummary, getExpensesSummary } = await import(
+      "@/server/queries/entries"
+    );
+    const { getSiteDetail, getSitePersons } = await import(
+      "@/server/queries/sites"
+    );
+    const { getPassbookData, getPersonsData } = await import(
+      "@/server/queries/persons"
+    );
+    const { getProfileCounts } = await import("@/server/queries/overview");
+
+    // Entries by the regular user on site A, site B and no site, then their
+    // site B access is removed: those must drop out of their totals.
+    const [p3] = await db
+      .insert(schema.persons)
+      .values({ name: "Scope Person", mobile: "9555500003", personTypeId })
+      .returning();
+    await grantSiteAccess(regularId, siteAId);
+    await grantSiteAccess(regularId, siteBId);
+    await signInAs("regular");
+    for (const [siteId, type, amount] of [
+      [siteAId, "credit", 1000],
+      [siteBId, "debit", 300],
+      [null, "credit", 50],
+    ] as const) {
+      await expectOk(
+        "regular entry",
+        actions.createLedgerEntryAction({
+          personId: p3.id,
+          type,
+          amount,
+          date: "2026-09-04",
+          siteId,
+          categoryId,
+          mode: "cash",
+        }),
+      );
+    }
+    await expectOk(
+      "regular expense",
+      actions.createExpenseAction({
+        amount: 80,
+        date: "2026-09-04",
+        siteId: siteBId,
+        categoryId,
+      }),
+    );
+    await signInAs("admin");
+    await revokeSiteAccess(regularId, siteBId);
+    // Earlier tests insert rows directly, bypassing the actions.
+    await rebuildBalances();
+
+    // A date range wide enough to match every row forces the live SUM path
+    // without changing which rows count.
+    const all = { dm: "any" as const };
+    const wide = {
+      dm: "range" as const,
+      d1: "1900-01-01",
+      d2: "2999-12-31",
+    };
+    const users = [
+      { id: adminId, name: "A", mobile: "9000000001", role: "admin" as const },
+      {
+        id: regularId,
+        name: "R",
+        mobile: "9000000002",
+        role: "regular" as const,
+      },
+    ];
+    for (const user of users) {
+      for (const siteId of [-1, siteAId, siteBId]) {
+        for (const allUsers of ["0", "1"]) {
+          const base = { siteId, allUsers, user };
+          expect(await getLedgersSummary({ ...base, filter: all })).toEqual(
+            await getLedgersSummary({ ...base, filter: wide }),
+          );
+          expect(await getExpensesSummary({ ...base, filter: all })).toEqual(
+            await getExpensesSummary({ ...base, filter: wide }),
+          );
+          if (siteId >= 0) {
+            const { feed: _a, ...fromBalances } =
+              (await getSiteDetail({ ...base, filter: all })) ?? {};
+            const { feed: _b, ...fromRows } =
+              (await getSiteDetail({ ...base, filter: wide })) ?? {};
+            expect(fromBalances).toEqual(fromRows);
+            expect(await getSitePersons({ ...base, filter: all })).toEqual(
+              await getSitePersons({ ...base, filter: wide }),
+            );
+          }
+          for (const pid of [personId, p3.id]) {
+            const pb = { personId: pid, scope: siteId, allUsers, user };
+            const { entries: _c, ...fromBalances } =
+              (await getPassbookData({ ...pb, filter: all })) ?? {};
+            const { entries: _d, ...fromRows } =
+              (await getPassbookData({ ...pb, filter: wide })) ?? {};
+            expect(fromBalances).toEqual(fromRows);
+          }
+        }
+        // Persons list: each net equals that person's own-entries passbook.
+        for (const row of await getPersonsData({ siteId, user })) {
+          const live = await getPassbookData({
+            personId: row.id,
+            scope: siteId,
+            filter: wide,
+            user,
+          });
+          expect(row.net).toBe(live?.net ?? Number.NaN);
+        }
+      }
+    }
+
+    // The regular user's site B entry and expense are out of scope now.
+    const regular = users[1];
+    expect(
+      await getPassbookData({
+        personId: p3.id,
+        scope: -1,
+        filter: all,
+        user: regular,
+      }),
+    ).toMatchObject({ credit: 1050, debit: 0, count: 2 });
+    expect(
+      (await getPersonsData({ siteId: -1, user: regular })).find(
+        (r) => r.id === p3.id,
+      )?.net,
+    ).toBe(1050);
+    const counts = await getProfileCounts(regular);
+    const [live] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.ledgerEntries)
+      .where(
+        sql`created_by = ${regularId} AND (site_id IS NULL OR site_id = ${siteAId})`,
+      );
+    expect(counts.entries).toBe(live.count);
+
+    await revokeSiteAccess(regularId, siteAId);
   });
 });

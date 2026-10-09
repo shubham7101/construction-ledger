@@ -1,11 +1,12 @@
 "use server";
 
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { categories, expenses, sites, users } from "@/db/schema";
 import { expenseSchema } from "@/lib/validators";
 import { requireUser } from "@/server/auth/jwt";
+import { applyExpense, CHANGED_MEANWHILE } from "@/server/balances";
 import {
   canAccessSite,
   canEditOrDeleteRecord,
@@ -36,12 +37,29 @@ export interface ExpenseDetail {
 
 async function findCreator(id: number) {
   const [row] = await db
-    .select({ createdBy: expenses.createdBy, siteId: expenses.siteId })
+    .select({
+      createdBy: expenses.createdBy,
+      siteId: expenses.siteId,
+      amount: expenses.amount,
+    })
     .from(expenses)
     .where(eq(expenses.id, id))
     .limit(1);
   return row;
 }
+
+type ExistingExpense = NonNullable<Awaited<ReturnType<typeof findCreator>>>;
+
+/**
+ * The expense, only while it still has the values findCreator read: the
+ * balance deltas are worked out from them (see server/balances.ts).
+ */
+const unchangedSince = (id: number, e: ExistingExpense) =>
+  and(
+    eq(expenses.id, id),
+    eq(expenses.amount, e.amount),
+    eq(expenses.siteId, e.siteId),
+  );
 
 export async function createExpenseAction(
   input: unknown,
@@ -57,7 +75,10 @@ export async function createExpenseAction(
     if (!canAccess) return { ok: false, error: SITE_ACCESS_DENIED };
     if (!siteActive) return { ok: false, error: SITE_INACTIVE };
 
-    await db.insert(expenses).values({ ...data, createdBy: user.id });
+    await db.batch([
+      db.insert(expenses).values({ ...data, createdBy: user.id }),
+      ...applyExpense({ ...data, createdBy: user.id }, 1),
+    ]);
 
     revalidateExpensePages();
     return { ok: true };
@@ -88,10 +109,19 @@ export async function updateExpenseAction(
       return { ok: false, error: SITE_INACTIVE };
     }
 
-    await db
-      .update(expenses)
-      .set({ ...data, updatedAt: new Date().toISOString() })
-      .where(eq(expenses.id, id));
+    const [written] = await db.batch([
+      db
+        .update(expenses)
+        .set({ ...data, updatedAt: new Date().toISOString() })
+        .where(unchangedSince(id, existing)),
+      // Take the old values off, then add the new ones: this covers a changed
+      // amount and a move to another site. The creator never changes.
+      ...applyExpense(existing, -1),
+      ...applyExpense({ ...data, createdBy: existing.createdBy }, 1),
+    ]);
+    if (written.rowsAffected === 0) {
+      return { ok: false, error: CHANGED_MEANWHILE };
+    }
 
     revalidateExpensePages();
     return { ok: true };
@@ -108,7 +138,13 @@ export async function deleteExpenseAction(id: number): Promise<ActionResult> {
       return { ok: false, error: "Unauthorized to delete this expense" };
     }
 
-    await db.delete(expenses).where(eq(expenses.id, id));
+    const [written] = await db.batch([
+      db.delete(expenses).where(unchangedSince(id, existing)),
+      ...applyExpense(existing, -1),
+    ]);
+    if (written.rowsAffected === 0) {
+      return { ok: false, error: CHANGED_MEANWHILE };
+    }
 
     revalidateExpensePages();
     return { ok: true };

@@ -4,18 +4,19 @@ import { db } from "@/db";
 import {
   categories,
   expenses,
+  ledgerBalances,
   ledgerEntries,
   persons,
   sites,
+  userBalances,
 } from "@/db/schema";
 import type { CurrentUser } from "@/server/auth/jwt";
 import {
+  balanceEntries,
   countAll,
-  creditSum,
-  debitSum,
   expenseScope,
-  expenseTotal,
   getAllowedSites,
+  ledgerBalanceScope,
   ledgerScope,
   type ScopeOptions,
 } from "./shared";
@@ -49,41 +50,16 @@ export async function getOverviewData(params: {
 }) {
   const { siteId, user } = params;
   const allowed = await getAllowedSites(user);
-  const scope: ScopeOptions = {
-    siteId,
-    user,
-    everyone: user.role === "admin",
-    allowed,
-  };
   // Recent activity is always the logged-in user's own entries, admins included.
-  const mine: ScopeOptions = { ...scope, everyone: false };
+  const mine: ScopeOptions = { siteId, user, everyone: false, allowed };
 
-  const ledgerWhere = ledgerScope(scope);
-  const expenseWhere = expenseScope(scope);
-
-  const [
-    perPerson,
-    [expenseRes],
-    [entriesRes],
-    [personsRes],
-    myLedgers,
-    myExpenses,
-  ] = await Promise.all([
-    // one grouped query instead of one query per person
+  const [[balance], [personsRes], myLedgers, myExpenses] = await Promise.all([
+    // The hero and counts: the user's own totals, kept by server/balances.ts.
     db
-      .select({
-        personId: ledgerEntries.personId,
-        credit: creditSum,
-        debit: debitSum,
-      })
-      .from(ledgerEntries)
-      .where(ledgerWhere)
-      .groupBy(ledgerEntries.personId),
-    db
-      .select({ total: expenseTotal, count: countAll })
-      .from(expenses)
-      .where(expenseWhere),
-    db.select({ count: countAll }).from(ledgerEntries).where(ledgerWhere),
+      .select()
+      .from(userBalances)
+      .where(eq(userBalances.userId, user.id))
+      .limit(1),
     db.select({ count: countAll }).from(persons),
     db
       .select({
@@ -119,18 +95,6 @@ export async function getOverviewData(params: {
       .limit(RECENT_LIMIT),
   ]);
 
-  // Sum of each person's net balance, split by sign: persons whose credits
-  // exceed their debits count towards `credit`, the rest towards `debit`.
-  // Expenses are money going out, so they count as debit too.
-  const expenseSum = expenseRes?.total ?? 0;
-  let credit = 0;
-  let debit = expenseSum;
-  for (const row of perPerson) {
-    const net = row.credit - row.debit;
-    if (net > 0) credit += net;
-    else debit -= net;
-  }
-
   // Dates are YYYY-MM-DD and createdAt is an SQLite timestamp, so plain
   // string comparison orders both chronologically.
   const recentActivity = [
@@ -150,18 +114,20 @@ export async function getOverviewData(params: {
     .map(({ createdAt: _createdAt, ...item }): ActivityItem => item);
 
   return {
-    credit,
-    debit,
+    // Money the user took in (ledger credits) and paid out (ledger debits
+    // plus their expenses).
+    credit: balance?.credit ?? 0,
+    debit: (balance?.debit ?? 0) + (balance?.expense ?? 0),
     personsCount: personsRes?.count ?? 0,
-    entriesCount: entriesRes?.count ?? 0,
-    expensesCount: expenseRes?.count ?? 0,
+    entriesCount: balance?.entries ?? 0,
+    expensesCount: balance?.expenses ?? 0,
     recentActivity,
   };
 }
 
 export async function getProfileCounts(user: CurrentUser) {
   const allowed = await getAllowedSites(user);
-  const ledgerWhere = ledgerScope({
+  const balanceWhere = ledgerBalanceScope({
     siteId: -1,
     user,
     everyone: user.role === "admin",
@@ -180,7 +146,10 @@ export async function getProfileCounts(user: CurrentUser) {
   const [sitesCount, personsRes, entriesRes] = await Promise.all([
     siteCount(),
     db.select({ count: countAll }).from(persons),
-    db.select({ count: countAll }).from(ledgerEntries).where(ledgerWhere),
+    db
+      .select({ count: balanceEntries })
+      .from(ledgerBalances)
+      .where(balanceWhere),
   ]);
 
   return {
