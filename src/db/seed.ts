@@ -1,8 +1,8 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { normalizeName } from "@/lib/normalize";
 import { hashPassword } from "@/server/auth/password";
 import { db } from "./index";
-import { categories, personTypes, users } from "./schema";
+import { categories, persons, personTypes, users } from "./schema";
 
 // ---- Edit these lists ----
 const CATEGORY_NAMES = ["Cement", "Steel", "Labour", "Transport", "Electrical"];
@@ -13,6 +13,9 @@ const PERSON_TYPE_NAMES = [
   "Plumber",
   "Supplier",
 ];
+const ADMIN_NAME = "Shubham Dhameliya";
+// Users get a linked person of this type (as createUserAction does).
+const USER_PERSON_TYPE = "Contractor";
 // --------------------------
 
 const adminMobile = process.env.SEED_ADMIN_MOBILE;
@@ -52,7 +55,7 @@ await db.batch([
   db
     .insert(users)
     .values({
-      name: "Admin",
+      name: ADMIN_NAME,
       mobile: adminMobile,
       passwordHash,
       role: "admin",
@@ -68,6 +71,17 @@ await db.batch([
     .insert(personTypes)
     .values(PERSON_TYPE_NAMES.map((name) => ({ name: normalizeName(name) })))
     .onConflictDoNothing({ target: personTypes.name }),
+
+  // The admin's own person, linked to the account. After the inserts above
+  // so the user and person type exist; skipped if the account has one.
+  db.run(sql`
+    INSERT INTO ${persons} (name, mobile, person_type_id, user_id)
+    SELECT u.name, u.mobile, pt.id, u.id
+    FROM ${users} u, ${personTypes} pt
+    WHERE u.mobile = ${adminMobile}
+      AND pt.name = ${normalizeName(USER_PERSON_TYPE)}
+    ON CONFLICT (user_id) DO NOTHING
+  `),
 ]);
 
 console.log("Seed complete");
