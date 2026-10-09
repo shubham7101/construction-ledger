@@ -1,7 +1,7 @@
 "use server";
 
 import "server-only";
-import { and, asc, eq, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { persons } from "@/db/schema";
 import { requireUser } from "@/server/auth/jwt";
@@ -26,7 +26,8 @@ export interface ReferenceOptions {
 /**
  * Search persons by name or mobile for the picker. Case-insensitive
  * substring match, capped at 30 rows; an empty query returns the first 30
- * by name so the sheet has options on first open.
+ * by name so the sheet has options on first open. The user's own linked
+ * person is left out: nobody records an entry with themselves.
  *
  * Names and companies are user data — never log the query or the rows.
  */
@@ -34,7 +35,7 @@ export async function searchPersonsAction(
   query: string,
   limit: number = SEARCH_LIMIT,
 ): Promise<PersonOption[]> {
-  await requireUser();
+  const user = await requireUser();
 
   const term = query.trim().toLowerCase().slice(0, TERM_LIMIT);
   // Escape LIKE wildcards; paired with `ESCAPE '!'` below.
@@ -46,6 +47,7 @@ export async function searchPersonsAction(
     .where(
       and(
         eq(persons.isActive, 1), // inactive persons can't take new entries
+        or(isNull(persons.userId), ne(persons.userId, user.id)),
         term
           ? or(
               sql`lower(${persons.name}) LIKE ${pattern} ESCAPE '!'`,

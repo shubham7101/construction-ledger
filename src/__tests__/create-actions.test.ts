@@ -2548,3 +2548,68 @@ describe("balance tables", () => {
     await revokeSiteAccess(regularId, siteAId);
   });
 });
+
+describe("a user's own person", () => {
+  it("is left out of the picker and can't take that user's entries", async () => {
+    const { searchPersonsAction } = await import("@/server/actions/reference");
+    // Each user's linked person (an earlier test may already have made one).
+    const linkedPerson = async (userId: number, mobile: string) => {
+      const [existing] = await db
+        .select()
+        .from(schema.persons)
+        .where(eq(schema.persons.userId, userId));
+      if (existing) return existing;
+      const [created] = await db
+        .insert(schema.persons)
+        .values({ name: "Linked", mobile, personTypeId, userId })
+        .returning();
+      return created;
+    };
+    const ownAdmin = await linkedPerson(adminId, "9666600001");
+    const ownRegular = await linkedPerson(regularId, "9666600002");
+    const entry = (pid: number) => ({
+      personId: pid,
+      type: "credit",
+      amount: 10,
+      date: "2026-09-05",
+      siteId: null,
+      categoryId,
+      mode: "cash",
+      note: "OWN_PERSON",
+    });
+
+    // Picker: each user finds the other's person, never their own.
+    const finds = async (person: { id: number; mobile: string }) =>
+      (await searchPersonsAction(person.mobile)).some(
+        (p) => p.id === person.id,
+      );
+    expect(await finds(ownRegular)).toBe(true);
+    expect(await finds(ownAdmin)).toBe(false);
+    await signInAs("regular");
+    expect(await finds(ownAdmin)).toBe(true);
+    expect(await finds(ownRegular)).toBe(false);
+
+    // Server: no entry for yourself, on create or by moving an entry.
+    await expectFail(
+      "regular for own person",
+      actions.createLedgerEntryAction(entry(ownRegular.id)),
+    );
+    await signInAs("admin");
+    await expectFail(
+      "admin for own person",
+      actions.createLedgerEntryAction(entry(ownAdmin.id)),
+    );
+    await expectOk(
+      "admin for the regular user's person",
+      actions.createLedgerEntryAction(entry(ownRegular.id)),
+    );
+    const [row] = await db
+      .select({ id: schema.ledgerEntries.id })
+      .from(schema.ledgerEntries)
+      .where(eq(schema.ledgerEntries.note, "OWN_PERSON"));
+    await expectFail(
+      "move the admin's entry to the admin's own person",
+      actions.updateLedgerEntryAction(row.id, entry(ownAdmin.id)),
+    );
+  });
+});

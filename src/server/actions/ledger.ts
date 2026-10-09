@@ -17,7 +17,7 @@ import { applyLedger, CHANGED_MEANWHILE } from "@/server/balances";
 import {
   canAccessSite,
   canEditOrDeleteRecord,
-  isPersonActive,
+  getPersonForEntry,
   isSiteActive,
 } from "@/server/permissions";
 import {
@@ -30,6 +30,7 @@ import {
 } from "./shared";
 
 const PERSON_INACTIVE = "This person is inactive";
+const OWN_PERSON = "You can't add an entry for yourself";
 
 export interface LedgerEntryDetail {
   id: number;
@@ -107,14 +108,15 @@ export async function createLedgerEntryAction(
     const user = await requireUser();
     const data = ledgerEntrySchema.parse(input);
 
-    const [canAccess, siteActive, personActive] = await Promise.all([
+    const [canAccess, siteActive, person] = await Promise.all([
       canAccessSite(user, data.siteId),
       isSiteActive(data.siteId),
-      isPersonActive(data.personId),
+      getPersonForEntry(data.personId),
     ]);
     if (!canAccess) return { ok: false, error: SITE_ACCESS_DENIED };
     if (!siteActive) return { ok: false, error: SITE_INACTIVE };
-    if (!personActive) return { ok: false, error: PERSON_INACTIVE };
+    if (!person?.active) return { ok: false, error: PERSON_INACTIVE };
+    if (person.userId === user.id) return { ok: false, error: OWN_PERSON };
 
     await db.batch([
       db.insert(ledgerEntries).values({ ...data, createdBy: user.id }),
@@ -137,11 +139,11 @@ export async function updateLedgerEntryAction(
     const data = ledgerEntrySchema.parse(input);
 
     // All independent lookups in one go; the checks below use what they need.
-    const [existing, canAccess, siteActive, personActive] = await Promise.all([
+    const [existing, canAccess, siteActive, person] = await Promise.all([
       findOwnership(id),
       canAccessSite(user, data.siteId),
       isSiteActive(data.siteId),
-      isPersonActive(data.personId),
+      getPersonForEntry(data.personId),
     ]);
     if (!existing) return { ok: false, error: "Entry not found" };
     if (!canEditOrDeleteRecord(user, existing.createdBy)) {
@@ -152,8 +154,13 @@ export async function updateLedgerEntryAction(
     if (data.siteId !== existing.siteId && !siteActive) {
       return { ok: false, error: SITE_INACTIVE };
     }
-    if (data.personId !== existing.personId && !personActive) {
-      return { ok: false, error: PERSON_INACTIVE };
+    // Moving to another person: that person must be active and must not be
+    // the entry creator's own (the creator stays the same on an edit).
+    if (data.personId !== existing.personId) {
+      if (!person?.active) return { ok: false, error: PERSON_INACTIVE };
+      if (person.userId === existing.createdBy) {
+        return { ok: false, error: OWN_PERSON };
+      }
     }
 
     const [written] = await db.batch([

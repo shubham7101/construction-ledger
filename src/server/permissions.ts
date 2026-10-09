@@ -62,12 +62,18 @@ export async function isSiteActive(siteId: number | null): Promise<boolean> {
   return row?.isActive === 1;
 }
 
-/** Inactive (soft-deleted) persons take no new entries. */
-export async function isPersonActive(personId: number): Promise<boolean> {
+/**
+ * What a ledger write needs to know about its person: inactive (soft-deleted)
+ * persons take no new entries, and a user's own linked person takes none from
+ * that user. `null` = no such person.
+ */
+export async function getPersonForEntry(
+  personId: number,
+): Promise<{ active: boolean; userId: number | null } | null> {
   const [row] = await db
-    .select({ isActive: persons.isActive })
+    .select({ isActive: persons.isActive, userId: persons.userId })
     .from(persons)
     .where(eq(persons.id, personId))
     .limit(1);
-  return row?.isActive === 1;
+  return row ? { active: row.isActive === 1, userId: row.userId } : null;
 }
