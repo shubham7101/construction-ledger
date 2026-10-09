@@ -4,7 +4,6 @@ import { parseSearchParams, toFilter } from "@/lib/params";
 import { firstParam, type RawSearchParams } from "@/lib/search-params";
 import { requireUser } from "@/server/auth/jwt";
 import { getExpensesPage, getExpensesSummary } from "@/server/queries/entries";
-import { getReferenceOptions } from "@/server/queries/reference";
 import { ExpensesListClient } from "./ExpensesListClient";
 
 export default async function ExpensesPage({
@@ -23,8 +22,7 @@ export default async function ExpensesPage({
     filter: toFilter(parsed),
     user,
   };
-  const [dropdowns, firstPage, summary] = await Promise.all([
-    getReferenceOptions(user),
+  const [firstPage, summary] = await Promise.all([
     getExpensesPage(listParams),
     getExpensesSummary(listParams),
   ]);
@@ -35,8 +33,6 @@ export default async function ExpensesPage({
       <div className="px-4 pt-2 space-y-3">
         <ExpensesListClient
           user={user}
-          sites={dropdowns.sites}
-          categories={dropdowns.categories}
           firstPage={firstPage}
           summary={summary}
           currentParams={parsed}

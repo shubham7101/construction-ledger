@@ -5,7 +5,6 @@ import { firstParam, type RawSearchParams } from "@/lib/search-params";
 import { requireUser } from "@/server/auth/jwt";
 import { getLedgersPage, getLedgersSummary } from "@/server/queries/entries";
 import { getPersonName } from "@/server/queries/persons";
-import { getReferenceOptions } from "@/server/queries/reference";
 import { LedgersListClient } from "./LedgersListClient";
 
 export default async function LedgersPage({
@@ -26,8 +25,7 @@ export default async function LedgersPage({
     query: parsed.q,
     user,
   };
-  const [dropdowns, firstPage, summary, personName] = await Promise.all([
-    getReferenceOptions(user),
+  const [firstPage, summary, personName] = await Promise.all([
     getLedgersPage(listParams),
     getLedgersSummary(listParams),
     getPersonName(parsed.person),
@@ -40,8 +38,6 @@ export default async function LedgersPage({
       <div className="space-y-3 px-4 pb-4 pt-2 md:px-6 lg:px-8">
         <LedgersListClient
           user={user}
-          sites={dropdowns.sites}
-          categories={dropdowns.categories}
           firstPage={firstPage}
           summary={summary}
           personName={personName}

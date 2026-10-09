@@ -3,14 +3,11 @@
 import clsx from "clsx";
 import Link from "next/link";
 import type React from "react";
-import { Pill } from "@/components/ui/Pill";
-import { SearchInput } from "@/components/ui/SearchInput";
-import { SiteFilterButton } from "@/components/ui/SiteFilterButton";
 import { InactiveBadge } from "@/features/admin/AdminUi";
-import { isSheetParam, useSheet } from "@/hooks/useSheet";
+import { FilterBar } from "@/features/filters/FilterBar";
+import { isSheetParam } from "@/hooks/useSheet";
 import { useUrlParams } from "@/hooks/useUrlParams";
 import { fmt } from "@/lib/format";
-import type { ParsedSearchParams } from "@/lib/params";
 
 interface PersonItem {
   id: number;
@@ -23,19 +20,9 @@ interface PersonItem {
 
 export const PersonsListClient: React.FC<{
   persons: PersonItem[];
-  personTypes: string[];
-  sites: ReadonlyArray<{ id: number; name: string }>;
   isAdmin: boolean;
-  currentParams: ParsedSearchParams;
-}> = ({ persons, personTypes, sites, isAdmin, currentParams }) => {
-  const showingInactive = isAdmin && currentParams.status === "inactive";
-  // Every person with their overall balance, not just the admin's own dealings.
-  const showAll = isAdmin && currentParams.all;
-  const { searchParams, update } = useUrlParams();
-  const { openSheet } = useSheet();
-
-  const currentPtype = currentParams.ptype || "All";
-  const sortActive = (currentParams.sort || "az") !== "az";
+}> = ({ persons, isAdmin }) => {
+  const { searchParams } = useUrlParams();
   // Carry list filters forward, but never an open sheet's params.
   const carryParams = (() => {
     const next = new URLSearchParams(searchParams.toString());
@@ -47,51 +34,14 @@ export const PersonsListClient: React.FC<{
 
   return (
     <section className="space-y-4" aria-label="Persons">
-      <SearchInput
-        value={currentParams.q ?? ""}
-        placeholder="🔍 Search name or mobile"
-        ariaLabel="Search persons by name or mobile"
+      <FilterBar
+        fk="persons"
+        isAdmin={isAdmin}
+        search={{
+          placeholder: "🔍 Search persons",
+          ariaLabel: "Search persons by name or mobile",
+        }}
       />
-
-      <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible">
-        <button
-          type="button"
-          onClick={() => openSheet("sort")}
-          className={clsx(
-            "min-h-10 shrink-0 cursor-pointer whitespace-nowrap rounded-full border px-3 text-sm font-semibold transition-colors",
-            sortActive
-              ? "border-amber-500 bg-amber-500 text-slate-950"
-              : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-          )}
-        >
-          ⇅ Sort
-        </button>
-        <SiteFilterButton sites={sites} siteId={currentParams.site} />
-        {isAdmin && (
-          <Pill
-            label="All persons"
-            active={showAll}
-            onClick={() => update({ all: !showAll })}
-          />
-        )}
-        {isAdmin && (
-          <Pill
-            label="Inactive"
-            active={showingInactive}
-            onClick={() =>
-              update({ status: showingInactive ? undefined : "inactive" })
-            }
-          />
-        )}
-        {["All", ...personTypes].map((c) => (
-          <Pill
-            key={c}
-            label={c}
-            active={currentPtype === c}
-            onClick={() => update({ ptype: c === "All" ? undefined : c })}
-          />
-        ))}
-      </div>
 
       {persons.length === 0 ? (
         <p className="py-10 text-center text-slate-400">No persons found</p>

@@ -1,10 +1,8 @@
 "use client";
 
 import type React from "react";
-import { FilterChip } from "@/components/ui/FilterChip";
 import { ListSentinel } from "@/components/ui/ListSentinel";
-import { ListToolbar } from "@/components/ui/ListToolbar";
-import { SiteFilterButton } from "@/components/ui/SiteFilterButton";
+import { FilterBar } from "@/features/filters/FilterBar";
 import { useInfiniteList } from "@/hooks/useInfiniteList";
 import { useSheet } from "@/hooks/useSheet";
 import { displayDate, fmt } from "@/lib/format";
@@ -19,8 +17,6 @@ interface ExpensesListClientProps {
   firstPage: Page<ExpenseRow>;
   /** Count and total over every matching expense. */
   summary: { count: number; total: number };
-  sites: ReadonlyArray<{ id: number; name: string }>;
-  categories: ReadonlyArray<{ id: number; name: string }>;
   currentParams: ParsedSearchParams;
 }
 
@@ -28,51 +24,35 @@ export const ExpensesListClient: React.FC<ExpensesListClientProps> = ({
   user,
   firstPage,
   summary,
-  sites,
-  categories,
   currentParams,
 }) => {
   const { openSheet } = useSheet();
 
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
-  const { dm, d1, d2, type, site, category, by } = currentParams;
+  const { dm, d1, d2, type, site, category, by, amin, amax } = currentParams;
 
   const list = useInfiniteList(firstPage, (cursor) =>
     loadExpensesPageAction(
-      { site, category, all: showAll, by, type, dm, d1, d2 },
+      { site, category, all: showAll, by, type, amin, amax, dm, d1, d2 },
       cursor,
     ),
   );
 
   return (
     <>
-      <div className="flex flex-wrap gap-2">
-        <SiteFilterButton sites={sites} siteId={currentParams.site} />
-        <FilterChip
-          param="category"
-          icon="🏷️"
-          allLabel="All categories"
-          title="Filter by category"
-          options={categories}
-          value={currentParams.category}
-        />
-      </div>
-
-      <ListToolbar
+      <FilterBar
+        fk="exp"
         isAdmin={isAdmin}
-        showAll={showAll}
-        by={currentParams.by}
-        onOpenFilter={() => openSheet("filter", { fk: "exp" })}
-        activeFilters={dm !== "any" ? 1 : 0}
+        summary={
+          <>
+            {summary.count} {summary.count === 1 ? "expense" : "expenses"}
+            <span className="block text-sm font-extrabold text-indigo-600">
+              Total {fmt(summary.total)}
+            </span>
+          </>
+        }
       />
-
-      <p className="flex justify-between px-1 text-xs font-semibold text-slate-500">
-        <span>
-          {summary.count} {summary.count === 1 ? "expense" : "expenses"}
-        </span>
-        <span className="text-indigo-600">Total {fmt(summary.total)}</span>
-      </p>
 
       {list.items.length === 0 ? (
         <p className="py-8 text-center text-sm text-slate-500">

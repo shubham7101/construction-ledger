@@ -1,10 +1,18 @@
 /** Same values as ledger_entries.type. */
 export type EntryType = "credit" | "debit";
 
-export type SortOption = "az" | "za" | "high" | "low";
-
-/** Which list the FilterSheet is opened for (reads type/dm/d1/d2 from the URL). */
-export type FilterKey = "site" | "ledgers" | "exp" | "pass" | "cat";
+/**
+ * Which page the FilterSheet is opened for; picks its sections (see
+ * features/filters/config.ts). "site" = a site's details page.
+ */
+export type FilterKey =
+  | "site"
+  | "ledgers"
+  | "exp"
+  | "pass"
+  | "cat"
+  | "persons"
+  | "sites";
 
 export interface AddModalState {
   k: "ledger" | "exp" | "person";

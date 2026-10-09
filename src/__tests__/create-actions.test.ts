@@ -2064,19 +2064,25 @@ describe("categories view and filters", () => {
     };
     const base = { siteId: site.id, allUsers: "1", user };
 
-    const { grandTotal, rows } = await getCategoryBreakdown({
+    const { spentTotal, receivedTotal, rows } = await getCategoryBreakdown({
       ...base,
       filter: { dm: "any" },
     });
-    expect(grandTotal).toBe(1000);
+    // Credits are money received: never counted as spending.
+    expect(spentTotal).toBe(200);
+    expect(receivedTotal).toBe(800);
     const b = rows.find((r) => r.id === catB.id);
     expect(b).toMatchObject({
       credit: 200,
       debit: 100,
       expense: 100,
-      total: 400,
+      spent: 200,
     });
-    expect(b?.share).toBeCloseTo(0.4);
+    expect(b?.share).toBeCloseTo(1);
+    // A category with only credits is still listed, ranked after spending,
+    // with no share of it.
+    expect(rows.map((r) => r.id)).toEqual([catB.id, categoryId]);
+    expect(rows[1]).toMatchObject({ credit: 600, spent: 0, share: 0 });
 
     // Category filter on the ledgers list.
     const filtered = await getLedgersSummary({
@@ -2796,11 +2802,12 @@ describe("logged-by filter", () => {
           user: admin,
         }),
       ).toMatchObject({ credit: 400, debit: 100, count: 2 });
-      const { grandTotal } = await getCategoryBreakdown({
+      const { spentTotal, receivedTotal } = await getCategoryBreakdown({
         ...q,
         filter: byRegular,
       });
-      expect(grandTotal).toBe(530);
+      expect(spentTotal).toBe(130);
+      expect(receivedTotal).toBe(400);
     }
     const page = await getLedgersPage({ ...base, filter: byRegular });
     expect(page.items.every((r) => r.createdByUserId === regularId)).toBe(true);
@@ -2993,5 +3000,116 @@ describe("sites list search and stage filter", () => {
       (await getSitesList(regular, { query: "zeta" })).map((s) => s.id),
     ).toEqual([mall.id]);
     await revokeSiteAccess(regularId, mall.id);
+  });
+});
+
+describe("amount range filter", () => {
+  it("narrows lists and totals on every page that has it", async () => {
+    const { getLedgersSummary, getLedgersPage, getExpensesSummary } =
+      await import("@/server/queries/entries");
+    const { getSiteDetail } = await import("@/server/queries/sites");
+    const { getPassbookData } = await import("@/server/queries/persons");
+    const { loadLedgersPageAction } = await import("@/server/actions/lists");
+    const { parseSearchParams, toFilter } = await import("@/lib/params");
+
+    const [site] = await db
+      .insert(schema.sites)
+      .values({ name: "Amount Site", city: "" })
+      .returning();
+    const [p] = await db
+      .insert(schema.persons)
+      .values({ name: "Amount Person", mobile: "9333300001", personTypeId })
+      .returning();
+    await db.insert(schema.ledgerEntries).values(
+      [100, 500, 1000, 5000].map((amount) => ({
+        personId: p.id,
+        type: "credit" as const,
+        amount,
+        date: "2026-09-09",
+        siteId: site.id,
+        categoryId,
+        mode: "cash" as const,
+        createdBy: adminId,
+      })),
+    );
+    await db.insert(schema.expenses).values(
+      [50, 700].map((amount) => ({
+        amount,
+        date: "2026-09-09",
+        siteId: site.id,
+        categoryId,
+        createdBy: adminId,
+      })),
+    );
+    await syncBalances();
+
+    const user = {
+      id: adminId,
+      name: "A",
+      mobile: "9000000001",
+      role: "admin" as const,
+    };
+    const base = { siteId: site.id, user };
+    const range = (minAmount?: number, maxAmount?: number) => ({
+      dm: "any" as const,
+      minAmount,
+      maxAmount,
+    });
+
+    // Bounds are inclusive; either end may be left open.
+    expect(
+      await getLedgersSummary({ ...base, filter: range(500, 1000) }),
+    ).toEqual({ count: 2, credit: 1500, debit: 0 });
+    expect(
+      (await getLedgersSummary({ ...base, filter: range(1000) })).credit,
+    ).toBe(6000);
+    expect(
+      (await getLedgersSummary({ ...base, filter: range(undefined, 100) }))
+        .credit,
+    ).toBe(100);
+    const page = await getLedgersPage({ ...base, filter: range(500, 1000) });
+    expect(page.items.map((r) => r.amount).sort((a, b) => a - b)).toEqual([
+      500, 1000,
+    ]);
+
+    // Expenses, the site page (ledger + expenses) and the passbook.
+    expect(await getExpensesSummary({ ...base, filter: range(100) })).toEqual({
+      count: 1,
+      total: 700,
+    });
+    expect(
+      await getSiteDetail({ ...base, filter: range(600, 1000) }),
+    ).toMatchObject({ credit: 1000, debit: 700, count: 2 });
+    // "Show all" on all sites would otherwise read person_balances.
+    expect(
+      await getPassbookData({
+        personId: p.id,
+        scope: -1,
+        allUsers: "1",
+        filter: range(1, 999),
+        user,
+      }),
+    ).toMatchObject({ credit: 600, count: 2 });
+
+    // Load-more passes it through.
+    await signInAs("admin");
+    const more = await loadLedgersPageAction(
+      { site: site.id, dm: "any", amin: 1000 },
+      "",
+    );
+    expect(more.items.map((r) => r.amount).sort((a, b) => a - b)).toEqual([
+      1000, 5000,
+    ]);
+
+    // URL parsing: junk and negatives are ignored; a reversed range is
+    // read the way it was meant.
+    const filter = (amin: string, amax: string) => {
+      const f = toFilter(parseSearchParams({ amin, amax }));
+      return [f.minAmount, f.maxAmount];
+    };
+    expect(filter("", "")).toEqual([undefined, undefined]);
+    expect(filter("abc", "-5")).toEqual([undefined, undefined]);
+    expect(filter("1000", "500")).toEqual([500, 1000]);
+    expect(filter("0", "")).toEqual([0, undefined]);
   });
 });

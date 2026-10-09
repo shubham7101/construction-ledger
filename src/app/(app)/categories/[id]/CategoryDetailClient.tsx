@@ -2,9 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import type React from "react";
-import { ListToolbar } from "@/components/ui/ListToolbar";
 import { FeedList } from "@/features/feed/FeedList";
-import { useSheet } from "@/hooks/useSheet";
+import { FilterBar } from "@/features/filters/FilterBar";
 import { fmt } from "@/lib/format";
 import type { ParsedSearchParams } from "@/lib/params";
 import { loadFeedPageAction } from "@/server/actions/lists";
@@ -27,7 +26,6 @@ export const CategoryDetailClient: React.FC<{
   currentParams: ParsedSearchParams;
 }> = ({ user, summary, feed, siteId, siteName, currentParams }) => {
   const router = useRouter();
-  const { openSheet } = useSheet();
 
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
@@ -96,13 +94,7 @@ export const CategoryDetailClient: React.FC<{
         </section>
 
         <section aria-label="Entries" className="min-w-0 space-y-3">
-          <ListToolbar
-            isAdmin={isAdmin}
-            showAll={showAll}
-            by={currentParams.by}
-            onOpenFilter={() => openSheet("filter", { fk: "cat" })}
-            activeFilters={dm !== "any" ? 1 : 0}
-          />
+          <FilterBar fk="cat" isAdmin={isAdmin} />
           <FeedList
             first={feed}
             showRecorder={showAll}

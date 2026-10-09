@@ -4,20 +4,16 @@
  */
 
 export type SheetKind =
-  | "site" // SitePickerSheet — pick the header's site filter
   | "addmenu" // AddMenuSheet — the FAB menu
   | "add" // AddEditSheet — ?k=ledger|exp|person (+ ?ed= to edit, ?pid=&dir= presets)
-  | "filter" // FilterSheet — ?fk=site|ledgers|exp|pass
-  | "sort" // SortSheet
+  | "filter" // FilterSheet — ?fk= the page (see FilterKey)
   | "entry" // LedgerDetailSheet — ?id=
   | "expense"; // ExpenseDetailSheet — ?id=
 
 const SHEET_KINDS: readonly string[] = [
-  "site",
   "addmenu",
   "add",
   "filter",
-  "sort",
   "entry",
   "expense",
 ];

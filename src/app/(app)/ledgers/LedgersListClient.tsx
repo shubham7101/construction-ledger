@@ -3,12 +3,8 @@
 import clsx from "clsx";
 import type React from "react";
 import { memo } from "react";
-import { FilterChip } from "@/components/ui/FilterChip";
 import { ListSentinel } from "@/components/ui/ListSentinel";
-import { ListToolbar } from "@/components/ui/ListToolbar";
-import { PersonFilterChip } from "@/components/ui/PersonFilterChip";
-import { SearchInput } from "@/components/ui/SearchInput";
-import { SiteFilterButton } from "@/components/ui/SiteFilterButton";
+import { FilterBar } from "@/features/filters/FilterBar";
 import { useInfiniteList } from "@/hooks/useInfiniteList";
 import { useSheet } from "@/hooks/useSheet";
 import { displayDate, fmt } from "@/lib/format";
@@ -24,8 +20,6 @@ interface LedgersListClientProps {
   firstPage: Page<LedgerRow>;
   /** Count and totals over every matching entry, not just the loaded ones. */
   summary: { count: number; credit: number; debit: number };
-  sites: ReadonlyArray<{ id: number; name: string }>;
-  categories: ReadonlyArray<{ id: number; name: string }>;
   /** Name for the person filter chip (null when no person is picked). */
   personName: string | null;
   currentParams: ParsedSearchParams;
@@ -72,8 +66,6 @@ export const LedgersListClient: React.FC<LedgersListClientProps> = ({
   user,
   firstPage,
   summary,
-  sites,
-  categories,
   personName,
   currentParams,
 }) => {
@@ -82,16 +74,25 @@ export const LedgersListClient: React.FC<LedgersListClientProps> = ({
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
 
-  const activeFilters =
-    (currentParams.dm && currentParams.dm !== "any" ? 1 : 0) +
-    (currentParams.type && currentParams.type.toLowerCase() !== "all" ? 1 : 0) +
-    (currentParams.mode ? 1 : 0);
-
-  const { dm, d1, d2, type, site, category, by, person, mode, q } =
+  const { dm, d1, d2, type, site, category, by, person, mode, q, amin, amax } =
     currentParams;
   const list = useInfiniteList(firstPage, (cursor) =>
     loadLedgersPageAction(
-      { site, category, person, all: showAll, by, type, mode, q, dm, d1, d2 },
+      {
+        site,
+        category,
+        person,
+        all: showAll,
+        by,
+        type,
+        mode,
+        q,
+        amin,
+        amax,
+        dm,
+        d1,
+        d2,
+      },
       cursor,
     ),
   );
@@ -101,31 +102,14 @@ export const LedgersListClient: React.FC<LedgersListClientProps> = ({
 
   return (
     <>
-      <SearchInput
-        value={q}
-        placeholder="🔍 Search person, mobile or note"
-        ariaLabel="Search entries by person, mobile or note"
-      />
-
-      <div className="flex flex-wrap gap-2">
-        <SiteFilterButton sites={sites} siteId={currentParams.site} />
-        <PersonFilterChip value={person} label={personName} />
-        <FilterChip
-          param="category"
-          icon="🏷️"
-          allLabel="All categories"
-          title="Filter by category"
-          options={categories}
-          value={currentParams.category}
-        />
-      </div>
-
-      <ListToolbar
+      <FilterBar
+        fk="ledgers"
         isAdmin={isAdmin}
-        showAll={showAll}
-        by={currentParams.by}
-        onOpenFilter={() => openSheet("filter", { fk: "ledgers" })}
-        activeFilters={activeFilters}
+        search={{
+          placeholder: "🔍 Search entries",
+          ariaLabel: "Search entries by person, mobile or note",
+        }}
+        personName={personName}
       />
 
       <p className="px-1 text-xs font-semibold text-slate-500">

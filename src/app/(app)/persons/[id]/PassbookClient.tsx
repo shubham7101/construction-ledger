@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import type React from "react";
 import { useTransition } from "react";
 import { ListSentinel } from "@/components/ui/ListSentinel";
-import { ListToolbar } from "@/components/ui/ListToolbar";
 import { Pill } from "@/components/ui/Pill";
 import { toast } from "@/components/ui/Toast";
+import { FilterBar } from "@/features/filters/FilterBar";
 import { useInfiniteList } from "@/hooks/useInfiniteList";
 import { useSheet } from "@/hooks/useSheet";
 import { useUrlParams } from "@/hooks/useUrlParams";
@@ -79,11 +79,11 @@ export const PassbookClient: React.FC<PassbookClientProps> = ({
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
   const isCreditBalance = net >= 0;
-  const { dm, d1, d2, type, by } = currentParams;
+  const { dm, d1, d2, type, by, amin, amax } = currentParams;
   const list = useInfiniteList(passbook.entries, (cursor) =>
     loadPassbookPageAction(
       person.id,
-      { site: scope, all: showAll, by, type, dm, d1, d2 },
+      { site: scope, all: showAll, by, type, amin, amax, dm, d1, d2 },
       cursor,
     ),
   );
@@ -305,17 +305,11 @@ export const PassbookClient: React.FC<PassbookClientProps> = ({
             </div>
           )}
 
-          <ListToolbar
+          <FilterBar
+            fk="pass"
             isAdmin={isAdmin}
-            showAll={showAll}
-            by={currentParams.by}
-            onOpenFilter={() => openSheet("filter", { fk: "pass" })}
-            activeFilters={currentParams.dm !== "any" ? 1 : 0}
+            summary={`${passbook.count} ${passbook.count === 1 ? "entry" : "entries"}`}
           />
-
-          <p className="px-1 text-xs font-semibold text-slate-500">
-            {passbook.count} {passbook.count === 1 ? "entry" : "entries"}
-          </p>
 
           <PassbookEntries
             entries={list.items}

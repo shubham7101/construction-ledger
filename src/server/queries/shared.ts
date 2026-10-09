@@ -38,6 +38,9 @@ export interface ParsedFilters {
   createdBy?: number;
   /** Only ledger entries paid this way. Expenses have no mode: none match. */
   mode?: "cash" | "upi" | "bank_transfer" | "cheque";
+  /** Amount range in whole rupees, inclusive; either end optional. */
+  minAmount?: number;
+  maxAmount?: number;
 }
 
 const has = (id: number | undefined): id is number =>
@@ -47,6 +50,20 @@ export const creditSum = sql<number>`COALESCE(SUM(CASE WHEN ${ledgerEntries.type
 export const debitSum = sql<number>`COALESCE(SUM(CASE WHEN ${ledgerEntries.type} = 'debit' THEN ${ledgerEntries.amount} ELSE 0 END), 0)`;
 export const countAll = sql<number>`COUNT(*)`;
 export const expenseTotal = sql<number>`COALESCE(SUM(${expenses.amount}), 0)`;
+
+/** The amount-range filter on an amount column. */
+function amountConditions(
+  column: SQLiteColumn,
+  filter?: ParsedFilters,
+): SQL | undefined {
+  return and(
+    filter?.minAmount !== undefined ? gte(column, filter.minAmount) : undefined,
+    filter?.maxAmount !== undefined ? lte(column, filter.maxAmount) : undefined,
+  );
+}
+
+const hasAmountRange = (filter?: ParsedFilters) =>
+  filter?.minAmount !== undefined || filter?.maxAmount !== undefined;
 
 function buildDateConditions(
   dateCol: SQLiteColumn,
@@ -122,17 +139,19 @@ export function ledgerScope(opts: ScopeOptions) {
       ? eq(ledgerEntries.personId, filter.personId)
       : undefined,
     filter?.mode ? eq(ledgerEntries.mode, filter.mode) : undefined,
+    amountConditions(ledgerEntries.amount, filter),
   );
 }
 
-/** True when the filter narrows ledger rows (date, category, person, creator or mode). */
+/** True when the filter narrows ledger rows (date, category, person, creator, mode or amount). */
 export function isLedgerFiltered(filter?: ParsedFilters): boolean {
   return (
     buildDateConditions(ledgerEntries.date, filter) !== undefined ||
     has(filter?.categoryId) ||
     has(filter?.personId) ||
     has(filter?.createdBy) ||
-    Boolean(filter?.mode)
+    Boolean(filter?.mode) ||
+    hasAmountRange(filter)
   );
 }
 
@@ -148,6 +167,7 @@ export function expenseScope(opts: ScopeOptions) {
       : undefined,
     // Expenses aren't tied to a person or a payment mode: those match none.
     has(filter?.personId) || filter?.mode ? sql`0` : undefined,
+    amountConditions(expenses.amount, filter),
   );
 }
 
@@ -164,12 +184,14 @@ export const balanceExpenses = sql<number>`COALESCE(SUM(${expenseBalances.count}
 
 /**
  * The balance tables hold totals per creator, person and site, so they can
- * stand in for any scope except a date, category or payment-mode filter.
+ * stand in for any scope except a date, category, payment-mode or amount
+ * filter.
  */
 export const balancesCover = (filter?: ParsedFilters) =>
   buildDateConditions(ledgerEntries.date, filter) === undefined &&
   !has(filter?.categoryId) &&
-  !filter?.mode;
+  !filter?.mode &&
+  !hasAmountRange(filter);
 
 /**
  * The ledger_balances rows whose sums equal ledgerScope(opts) totals. Only

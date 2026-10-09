@@ -6,8 +6,6 @@ import { AddMenuSheet } from "@/features/sheets/AddMenuSheet";
 import { ExpenseDetailSheet } from "@/features/sheets/ExpenseDetailSheet";
 import { FilterSheet } from "@/features/sheets/FilterSheet";
 import { LedgerDetailSheet } from "@/features/sheets/LedgerDetailSheet";
-import { SitePickerSheet } from "@/features/sheets/SitePickerSheet";
-import { SortSheet } from "@/features/sheets/SortSheet";
 import { AppNav } from "@/features/shell/AppNav";
 import { Fab } from "@/features/shell/Fab";
 import { requireUser } from "@/server/auth/jwt";
@@ -45,11 +43,9 @@ export default async function AppLayout({
         </div>
 
         <Fab />
-        <SitePickerSheet sites={sites} />
         <AddMenuSheet />
         <AddEditSheet sites={sites} />
-        <SortSheet />
-        <FilterSheet />
+        <FilterSheet sites={sites} isAdmin={isAdmin} />
         <LedgerDetailSheet />
         <ExpenseDetailSheet />
       </div>

@@ -34,9 +34,10 @@ async function scopes({ siteId, allUsers, filter, user }: CategoryParams) {
 }
 
 /**
- * Money per category: ledger credits, ledger debits and expenses, plus their
- * total and each category's share of the grand total. Only categories with
- * activity are returned, largest first.
+ * Money per category: ledger credits, ledger debits and expenses. Spending
+ * (debits + expenses) is what ranks categories and makes up each one's share;
+ * credits are money received, so they're totalled apart and never count as
+ * spending. Only categories with activity are returned, biggest spend first.
  */
 export async function getCategoryBreakdown(params: CategoryParams) {
   const { ledgerWhere, expenseWhere } = await scopes(params);
@@ -75,16 +76,24 @@ export async function getCategoryBreakdown(params: CategoryParams) {
   }
 
   const rows = [...byId.values()]
-    .map((r) => ({ ...r, total: r.credit + r.debit + r.expense }))
-    .filter((r) => r.total > 0)
-    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
-  const grandTotal = rows.reduce((sum, r) => sum + r.total, 0);
+    .map((r) => ({ ...r, spent: r.debit + r.expense }))
+    .filter((r) => r.spent > 0 || r.credit > 0)
+    .sort(
+      (a, b) =>
+        b.spent - a.spent ||
+        b.credit - a.credit ||
+        a.name.localeCompare(b.name),
+    );
+  const spentTotal = rows.reduce((sum, r) => sum + r.spent, 0);
+  const receivedTotal = rows.reduce((sum, r) => sum + r.credit, 0);
 
   return {
-    grandTotal,
+    spentTotal,
+    receivedTotal,
     rows: rows.map((r) => ({
       ...r,
-      share: grandTotal > 0 ? r.total / grandTotal : 0,
+      /** This category's part of all spending (0 when nothing was spent). */
+      share: spentTotal > 0 ? r.spent / spentTotal : 0,
     })),
   };
 }

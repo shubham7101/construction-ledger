@@ -27,7 +27,7 @@ export function Segmented<T extends string>({
     <fieldset
       aria-label={ariaLabel}
       className={clsx(
-        "m-0 grid min-w-0 gap-1 rounded-xl border-none bg-slate-100 p-1",
+        "grid min-w-0 gap-1 rounded-xl border-none bg-slate-100 p-1",
         className,
       )}
       style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}

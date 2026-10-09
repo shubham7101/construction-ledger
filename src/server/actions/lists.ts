@@ -37,6 +37,9 @@ export interface ListFilters {
   q?: string;
   /** Ledgers: payment mode. */
   mode?: string;
+  /** Amount range, whole rupees. */
+  amin?: number;
+  amax?: number;
   type?: string;
   dm?: string;
   d1?: string;
@@ -51,6 +54,8 @@ function parseFilters(f: ListFilters) {
     person: String(f.person ?? -1),
     by: String(f.by ?? -1),
     mode: f.mode ?? "",
+    amin: f.amin === undefined ? "" : String(f.amin),
+    amax: f.amax === undefined ? "" : String(f.amax),
     q: f.q ?? "",
     all: f.all ? "1" : "",
     type: f.type ?? "",

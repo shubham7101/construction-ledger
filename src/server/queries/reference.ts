@@ -46,7 +46,7 @@ const queryPersonTypes = cache(() =>
     .orderBy(asc(personTypes.name)),
 );
 
-/** Sites only — what the header pill and SitePickerSheet need. */
+/** Sites only — what the entry form and the Filters sheet need. */
 export const getSitesOptions = cache(async (user: CurrentUser) => ({
   sites: await querySites(user),
 }));

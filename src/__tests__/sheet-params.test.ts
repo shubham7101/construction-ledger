@@ -6,15 +6,7 @@ import {
   SHEET_KEYS,
 } from "@/lib/sheet-params";
 
-const ALL_KINDS = [
-  "site",
-  "addmenu",
-  "add",
-  "filter",
-  "sort",
-  "entry",
-  "expense",
-] as const;
+const ALL_KINDS = ["addmenu", "add", "filter", "entry", "expense"] as const;
 
 describe("parseSheetKind", () => {
   it("accepts every known sheet kind", () => {

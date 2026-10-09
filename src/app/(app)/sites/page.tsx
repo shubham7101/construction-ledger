@@ -1,12 +1,12 @@
 import "server-only";
 import Link from "next/link";
 import { SiteStatusBadge } from "@/components/ui/SiteStatusBadge";
+import { FilterBar } from "@/features/filters/FilterBar";
 import { AppHeader } from "@/features/shell/AppHeader";
 import { parseSearchParams } from "@/lib/params";
 import type { RawSearchParams } from "@/lib/search-params";
 import { requireUser } from "@/server/auth/jwt";
 import { getSitesList } from "@/server/queries/sites";
-import { SitesFilters } from "./SitesFilters";
 
 /**
  * Active sites the user can access, searchable and filterable by stage;
@@ -30,7 +30,14 @@ export default async function SitesPage({
       <AppHeader user={user} title="Sites" />
 
       <div className="space-y-3 px-4 pb-28 pt-2 md:px-6 lg:px-8">
-        <SitesFilters query={parsed.q} stage={parsed.stage} />
+        <FilterBar
+          fk="sites"
+          isAdmin={user.role === "admin"}
+          search={{
+            placeholder: "🔍 Search sites",
+            ariaLabel: "Search sites by name, city or address",
+          }}
+        />
 
         <p className="px-1 text-xs font-semibold text-slate-500">
           {sites.length} {sites.length === 1 ? "site" : "sites"}

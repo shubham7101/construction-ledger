@@ -4,11 +4,9 @@ import clsx from "clsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type React from "react";
-import { FilterChip } from "@/components/ui/FilterChip";
-import { ListToolbar } from "@/components/ui/ListToolbar";
 import { SiteStatusBadge } from "@/components/ui/SiteStatusBadge";
 import { FeedList } from "@/features/feed/FeedList";
-import { useSheet } from "@/hooks/useSheet";
+import { FilterBar } from "@/features/filters/FilterBar";
 import { useUrlParams } from "@/hooks/useUrlParams";
 import { fmt } from "@/lib/format";
 import type { ParsedSearchParams } from "@/lib/params";
@@ -38,7 +36,6 @@ interface SiteDetailClientProps {
   };
   /** Persons with entries on this site, with their net balance here. */
   people: Array<{ id: number; name: string; net: number }>;
-  categories: ReadonlyArray<{ id: number; name: string }>;
   currentParams: ParsedSearchParams;
 }
 
@@ -46,20 +43,15 @@ export const SiteDetailClient: React.FC<SiteDetailClientProps> = ({
   user,
   detail,
   people,
-  categories,
   currentParams,
 }) => {
   const router = useRouter();
   const { update } = useUrlParams();
-  const { openSheet } = useSheet();
   const { site } = detail;
 
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
-  const { dm, d1, d2, type, category, person, by } = currentParams;
-  const activeFilters =
-    (dm !== "any" ? 1 : 0) +
-    (type && type !== "all" && type !== "All Activity" ? 1 : 0);
+  const { dm, d1, d2, type, category, person, by, amin, amax } = currentParams;
   const filtered = category >= 0 || person >= 0;
 
   return (
@@ -185,36 +177,12 @@ export const SiteDetailClient: React.FC<SiteDetailClientProps> = ({
         </div>
 
         <section aria-label="Entries" className="min-w-0 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <FilterChip
-              param="category"
-              icon="🏷️"
-              allLabel="All categories"
-              title="Filter by category"
-              options={categories}
-              value={category}
-            />
-            <FilterChip
-              param="person"
-              icon="👤"
-              allLabel="Everyone"
-              title="Filter by person"
-              options={people}
-              value={person}
-            />
-          </div>
-
-          <ListToolbar
+          <FilterBar
+            fk="site"
             isAdmin={isAdmin}
-            showAll={showAll}
-            by={currentParams.by}
-            onOpenFilter={() => openSheet("filter", { fk: "site" })}
-            activeFilters={activeFilters}
+            summary={`${detail.count} ${detail.count === 1 ? "entry" : "entries"}`}
+            personName={people.find((p) => p.id === person)?.name ?? null}
           />
-
-          <p className="px-1 text-xs font-semibold text-slate-500">
-            {detail.count} {detail.count === 1 ? "entry" : "entries"}
-          </p>
 
           <FeedList
             first={detail.feed}
@@ -222,7 +190,18 @@ export const SiteDetailClient: React.FC<SiteDetailClientProps> = ({
             loadPage={(cursor) =>
               loadFeedPageAction(
                 site.id,
-                { all: showAll, by, type, dm, d1, d2, category, person },
+                {
+                  all: showAll,
+                  by,
+                  type,
+                  dm,
+                  d1,
+                  d2,
+                  category,
+                  person,
+                  amin,
+                  amax,
+                },
                 cursor,
               )
             }
