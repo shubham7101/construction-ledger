@@ -16,7 +16,6 @@ import { countAll, escapeLike } from "./shared";
 /* ------------------------------------------------------------------ */
 
 export type ListStatus = "active" | "inactive" | "all";
-export type ListSort = "az" | "za" | "newest" | "oldest";
 
 export interface AdminListParams {
   status: ListStatus;

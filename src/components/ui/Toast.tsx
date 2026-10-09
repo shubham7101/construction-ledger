@@ -1,28 +1,12 @@
 "use client";
 
 import type React from "react";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const TOAST_EVENT = "khata:toast";
 const DURATION_MS = 2800;
 
-interface ToastContextType {
-  showToast: (message: string) => void;
-}
-
-const ToastContext = createContext<ToastContextType>({ showToast: () => {} });
-
-export const useToast = () => useContext(ToastContext);
-
-/** Imperative helper for non-React code; routed through the provider so only one toast UI exists. */
+/** Show a toast from anywhere; routed through the provider so only one toast UI exists. */
 export const toast = (message: string) => {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -51,10 +35,8 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, [showToast]);
 
-  const value = useMemo(() => ({ showToast }), [showToast]);
-
   return (
-    <ToastContext.Provider value={value}>
+    <>
       {children}
       {message && (
         <output
@@ -64,6 +46,6 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
           {message}
         </output>
       )}
-    </ToastContext.Provider>
+    </>
   );
 };

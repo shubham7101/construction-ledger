@@ -2,14 +2,7 @@ import { describe, expect, it, mock } from "bun:test";
 
 mock.module("server-only", () => ({}));
 
-import {
-  displayDate,
-  fmt,
-  iso,
-  isoToParts,
-  partsToIso,
-  rs,
-} from "@/lib/format";
+import { displayDate, fmt, iso } from "@/lib/format";
 import { normalizeName } from "@/lib/normalize";
 import { parseSearchParams } from "@/lib/params";
 import { canEditOrDeleteRecord, isShowAllUsers } from "@/server/permissions";
@@ -55,15 +48,8 @@ describe("Date and Currency Format Unit Tests", () => {
     expect(iso("30/09/2026")).toBe("2026-09-30");
   });
 
-  it("should split ISO date to parts and reconstruct ISO", () => {
-    const parts = isoToParts("2026-09-30");
-    expect(parts).toEqual(["30", "09", "2026"]);
-    expect(partsToIso(parts[0], parts[1], parts[2])).toBe("2026-09-30");
-  });
-
   it("should format currency properly", () => {
     expect(fmt(15000)).toBe("₹15,000");
-    expect(rs(15000)).toBe("Rs. 15,000");
   });
 });
 

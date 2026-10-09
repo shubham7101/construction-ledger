@@ -9,7 +9,7 @@ import {
   type SheetKind,
 } from "@/lib/sheet-params";
 
-export { isSheetParam, type SheetKind };
+export { isSheetParam };
 
 /**
  * The URL pushed when a sheet was opened *on top of* another one (menu → form,

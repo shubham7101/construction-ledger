@@ -1,20 +1,6 @@
 export const fmt = (n: number): string =>
   `₹${Math.abs(n).toLocaleString("en-IN")}`;
 
-export const rs = (n: number): string =>
-  `Rs. ${Math.abs(n).toLocaleString("en-IN")}`;
-
-export const today = (): string => {
-  const t = new Date();
-  return (
-    String(t.getDate()).padStart(2, "0") +
-    "/" +
-    String(t.getMonth() + 1).padStart(2, "0") +
-    "/" +
-    t.getFullYear()
-  );
-};
-
 export const todayIso = (): string => {
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
@@ -38,26 +24,6 @@ export const iso = (d: string): string => {
   }
   return d;
 };
-
-export const isoToParts = (d: string): [string, string, string] => {
-  if (!d) return ["", "", ""];
-  const cleanIso = iso(d);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cleanIso)) {
-    const [y, m, day] = cleanIso.split("-");
-    return [day, m, y];
-  }
-  return ["", "", ""];
-};
-
-export const partsToIso = (day: string, m: string, y: string): string => {
-  if (day && m && y) {
-    return `${y}-${m.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  }
-  return "";
-};
-
-export const dstr = (a: [string, string, string]): string =>
-  a[0] && a[1] && a[2] ? `${a[0]}/${a[1]}/${a[2]}` : "";
 
 export const digits = (x: string): string => {
   const d = x.replace(/\D/g, "");
