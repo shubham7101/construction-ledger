@@ -20,7 +20,7 @@ export const CategoriesClient: React.FC<{
   breakdown: { grandTotal: number; rows: CategoryBreakdownRow[] };
   currentParams: ParsedSearchParams;
 }> = ({ user, sites, breakdown, currentParams }) => {
-  const { searchParams, update } = useUrlParams();
+  const { searchParams } = useUrlParams();
   const { openSheet } = useSheet();
 
   const isAdmin = user.role === "admin";
@@ -39,7 +39,7 @@ export const CategoriesClient: React.FC<{
       <ListToolbar
         isAdmin={isAdmin}
         showAll={showAll}
-        onShowAllChange={(value) => update({ all: value })}
+        by={currentParams.by}
         onOpenFilter={() => openSheet("filter", { fk: "cat" })}
         activeFilters={currentParams.dm !== "any" ? 1 : 0}
       />

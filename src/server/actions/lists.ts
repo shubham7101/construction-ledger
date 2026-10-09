@@ -31,6 +31,12 @@ export interface ListFilters {
   category?: number;
   person?: number;
   all?: boolean;
+  /** Admins: one user's entries ("logged by"). */
+  by?: number;
+  /** Ledgers: text search. */
+  q?: string;
+  /** Ledgers: payment mode. */
+  mode?: string;
   type?: string;
   dm?: string;
   d1?: string;
@@ -43,6 +49,9 @@ function parseFilters(f: ListFilters) {
     site: String(f.site ?? -1),
     category: String(f.category ?? -1),
     person: String(f.person ?? -1),
+    by: String(f.by ?? -1),
+    mode: f.mode ?? "",
+    q: f.q ?? "",
     all: f.all ? "1" : "",
     type: f.type ?? "",
     dm: f.dm ?? "",
@@ -53,6 +62,7 @@ function parseFilters(f: ListFilters) {
     siteId: parsed.site,
     allUsers: parsed.all ? "1" : undefined,
     filter: toFilter(parsed),
+    query: parsed.q,
   };
 }
 

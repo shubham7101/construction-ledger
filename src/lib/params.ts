@@ -5,11 +5,21 @@ const searchParamsSchema = z.object({
   site: z.coerce.number().int().default(-1).catch(-1),
   category: z.coerce.number().int().default(-1).catch(-1),
   person: z.coerce.number().int().default(-1).catch(-1),
+  // Admins: only entries logged by this user id (-1 = per `all`).
+  by: z.coerce.number().int().default(-1).catch(-1),
   all: z
     .string()
     .optional()
     .transform((v) => v === "1" || v === "true"),
   type: z.string().default("all"),
+  // Ledger payment mode; absent = any.
+  mode: z
+    .enum(["cash", "upi", "bank_transfer", "cheque"])
+    .optional()
+    .catch(undefined),
+  // Sites list: project stage (sites.status); absent = any. Not `status`,
+  // which is the admin lists' active / inactive (soft delete) filter.
+  stage: z.enum(["active", "completed", "on_hold"]).optional().catch(undefined),
   dm: z.enum(["any", "day", "range"]).default("any"),
   d1: z.string().default(""),
   d2: z.string().default(""),
@@ -40,6 +50,8 @@ export const toFilter = ({
   d2,
   category,
   person,
+  by,
+  mode,
 }: ParsedSearchParams) => ({
   t: type,
   dm,
@@ -47,6 +59,8 @@ export const toFilter = ({
   d2,
   categoryId: category,
   personId: person,
+  createdBy: by,
+  mode,
 });
 
 export function parseSearchParams(

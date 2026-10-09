@@ -19,6 +19,7 @@ import {
   validateUserDraft,
 } from "@/features/admin/UserForm";
 import { formatTimestamp } from "@/lib/format";
+import { invalidateUserOptions } from "@/lib/reference-cache";
 import {
   setUserActiveAction,
   setUserSiteAccessAction,
@@ -75,7 +76,10 @@ export const AdminUserDetailClient: React.FC<AdminUserDetailClientProps> = ({
         password: draft.password,
         role: isSelf ? "admin" : draft.role,
       });
-      if (done(res, "User updated")) setDraft(null);
+      if (done(res, "User updated")) {
+        invalidateUserOptions(); // the "Logged by" picker caches users
+        setDraft(null);
+      }
     });
   };
 
@@ -85,6 +89,7 @@ export const AdminUserDetailClient: React.FC<AdminUserDetailClientProps> = ({
       if (
         done(res, userItem.active ? "User deactivated" : "User reactivated")
       ) {
+        invalidateUserOptions();
         setDraft(null);
       }
     });

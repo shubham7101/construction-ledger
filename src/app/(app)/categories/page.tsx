@@ -22,7 +22,12 @@ export default async function CategoriesPage({
     getCategoryBreakdown({
       siteId: parsed.site,
       allUsers: firstParam(raw.all),
-      filter: { dm: parsed.dm, d1: parsed.d1, d2: parsed.d2 },
+      filter: {
+        dm: parsed.dm,
+        d1: parsed.d1,
+        d2: parsed.d2,
+        createdBy: parsed.by,
+      },
       user,
     }),
   ]);

@@ -1,5 +1,8 @@
-import type { ReferenceOptions } from "@/server/actions/reference";
-import { getReferenceOptionsAction } from "@/server/actions/reference";
+import type { ReferenceOptions, UserOption } from "@/server/actions/reference";
+import {
+  getReferenceOptionsAction,
+  getUserOptionsAction,
+} from "@/server/actions/reference";
 
 let cached: ReferenceOptions | null = null;
 let inflight: Promise<ReferenceOptions> | null = null;
@@ -30,4 +33,30 @@ export function loadReferenceOptions(): Promise<ReferenceOptions> {
 /** Call after creating a site / category / person type so the next open is fresh. */
 export function invalidateReferenceOptions(): void {
   cached = null;
+}
+
+let cachedUsers: UserOption[] | null = null;
+let usersInflight: Promise<UserOption[]> | null = null;
+
+/** Call after creating / renaming / (de)activating a user. */
+export function invalidateUserOptions(): void {
+  cachedUsers = null;
+}
+
+/** The admins' "Logged by" options, cached for the session like the above. */
+export function loadUserOptions(): Promise<UserOption[]> {
+  if (cachedUsers) return Promise.resolve(cachedUsers);
+  if (!usersInflight) {
+    usersInflight = getUserOptionsAction()
+      .then((rows) => {
+        cachedUsers = rows;
+        usersInflight = null;
+        return rows;
+      })
+      .catch((err: unknown) => {
+        usersInflight = null;
+        throw err;
+      });
+  }
+  return usersInflight;
 }

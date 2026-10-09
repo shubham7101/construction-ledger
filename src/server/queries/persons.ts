@@ -40,6 +40,8 @@ export async function getPersonsData(params: {
   sort?: string;
   /** Soft-deleted persons are hidden unless asked for. */
   status?: "active" | "inactive" | "all";
+  /** "1" = every person, balanced over everyone's entries (admins only). */
+  allUsers?: string;
   user: CurrentUser;
 }) {
   const {
@@ -48,16 +50,18 @@ export async function getPersonsData(params: {
     ptype = "",
     sort = "az",
     status = "active",
+    allUsers,
     user,
   } = params;
-  const allowed = await getAllowedSites(user);
-  // Always the logged-in user's own entries, admins included: the list shows
-  // only persons they have dealt with, and the balance between the two of them.
+  // By default the logged-in user's own entries, admins included: the list
+  // shows only persons they have dealt with, and the balance between the two
+  // of them. With show-all (admins), every person and their overall balance.
+  const everyone = isShowAllUsers(user, allUsers);
   const balanceOn = ledgerBalanceScope({
     siteId,
     user,
-    everyone: false,
-    allowed,
+    everyone,
+    allowed: await getAllowedSites(user),
   });
 
   const term = query.trim().toLowerCase();
@@ -69,9 +73,10 @@ export async function getPersonsData(params: {
       )
     : undefined;
 
-  // single query: persons INNER JOIN their scoped ledger_balances rows (one
-  // per site), summed per person — the inner join drops persons with no
-  // entries by this user, and rows left at zero by deletes are skipped
+  // single query: persons LEFT JOIN their scoped ledger_balances rows (one
+  // per creator and site), summed per person. Show-all keeps every person,
+  // at 0 if none match; otherwise HAVING drops persons with no entries in
+  // scope (rows left at zero by deletes count none).
   const rows = await db
     .select({
       id: persons.id,
@@ -84,13 +89,9 @@ export async function getPersonsData(params: {
     })
     .from(persons)
     .innerJoin(personTypes, eq(persons.personTypeId, personTypes.id))
-    .innerJoin(
+    .leftJoin(
       ledgerBalances,
-      and(
-        eq(ledgerBalances.personId, persons.id),
-        gt(ledgerBalances.entries, 0),
-        balanceOn,
-      ),
+      and(eq(ledgerBalances.personId, persons.id), balanceOn),
     )
     .where(
       and(
@@ -101,7 +102,8 @@ export async function getPersonsData(params: {
         search,
       ),
     )
-    .groupBy(persons.id, personTypes.name);
+    .groupBy(persons.id, personTypes.name)
+    .having(everyone ? undefined : gt(balanceEntries, 0));
 
   const result = rows.map((r) => ({
     id: r.id,
@@ -313,4 +315,15 @@ export async function getPassbookScope(
     ? requestedSiteId
     : -1;
   return { sites, scope };
+}
+
+/** A person's name for a filter chip's label; null when there is none. */
+export async function getPersonName(personId: number): Promise<string | null> {
+  if (personId < 0) return null;
+  const [row] = await db
+    .select({ name: persons.name })
+    .from(persons)
+    .where(eq(persons.id, personId))
+    .limit(1);
+  return row?.name ?? null;
 }

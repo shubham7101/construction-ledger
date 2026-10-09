@@ -3,8 +3,8 @@
 import clsx from "clsx";
 import Link from "next/link";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
 import { Pill } from "@/components/ui/Pill";
+import { SearchInput } from "@/components/ui/SearchInput";
 import { SiteFilterButton } from "@/components/ui/SiteFilterButton";
 import { InactiveBadge } from "@/features/admin/AdminUi";
 import { isSheetParam, useSheet } from "@/hooks/useSheet";
@@ -21,8 +21,6 @@ interface PersonItem {
   net: number;
 }
 
-const SEARCH_DEBOUNCE_MS = 300;
-
 export const PersonsListClient: React.FC<{
   persons: PersonItem[];
   personTypes: string[];
@@ -31,33 +29,10 @@ export const PersonsListClient: React.FC<{
   currentParams: ParsedSearchParams;
 }> = ({ persons, personTypes, sites, isAdmin, currentParams }) => {
   const showingInactive = isAdmin && currentParams.status === "inactive";
+  // Every person with their overall balance, not just the admin's own dealings.
+  const showAll = isAdmin && currentParams.all;
   const { searchParams, update } = useUrlParams();
   const { openSheet } = useSheet();
-
-  const urlQuery = currentParams.q ?? "";
-  const [q, setQ] = useState(urlQuery);
-  const lastSent = useRef(urlQuery);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  // Sync from the URL only when it changed from outside (back/forward, clear), not from our own debounce.
-  useEffect(() => {
-    if (urlQuery !== lastSent.current) {
-      lastSent.current = urlQuery;
-      setQ(urlQuery);
-    }
-  }, [urlQuery]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const onSearch = (value: string) => {
-    setQ(value);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      const next = value.trim();
-      lastSent.current = next;
-      update({ q: next || undefined });
-    }, SEARCH_DEBOUNCE_MS);
-  };
 
   const currentPtype = currentParams.ptype || "All";
   const sortActive = (currentParams.sort || "az") !== "az";
@@ -72,13 +47,10 @@ export const PersonsListClient: React.FC<{
 
   return (
     <section className="space-y-4" aria-label="Persons">
-      <input
-        type="search"
-        value={q}
-        onChange={(e) => onSearch(e.target.value)}
+      <SearchInput
+        value={currentParams.q ?? ""}
         placeholder="🔍 Search name or mobile"
-        aria-label="Search persons by name or mobile"
-        className="min-h-13 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 shadow-sm outline-none focus:border-amber-500"
+        ariaLabel="Search persons by name or mobile"
       />
 
       <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible">
@@ -95,6 +67,13 @@ export const PersonsListClient: React.FC<{
           ⇅ Sort
         </button>
         <SiteFilterButton sites={sites} siteId={currentParams.site} />
+        {isAdmin && (
+          <Pill
+            label="All persons"
+            active={showAll}
+            onClick={() => update({ all: !showAll })}
+          />
+        )}
         {isAdmin && (
           <Pill
             label="Inactive"

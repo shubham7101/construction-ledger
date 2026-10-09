@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   categories,
@@ -30,6 +30,7 @@ import {
   countAll,
   creditSum,
   debitSum,
+  escapeLike,
   expenseBalanceScope,
   expenseScope,
   expenseTotal,
@@ -44,12 +45,16 @@ export interface ListParams {
   siteId: number;
   allUsers?: string;
   filter?: ParsedFilters;
+  /** Ledgers: text search over person name / mobile and the note. */
+  query?: string;
   user: CurrentUser;
 }
 
 /* ------------------------------------------------------------------ */
 /* Ledgers                                                             */
 /* ------------------------------------------------------------------ */
+
+const SEARCH_TERM_LIMIT = 50;
 
 async function listScope({
   siteId,
@@ -73,11 +78,34 @@ function typeFilter(filter?: ParsedFilters) {
   return t === "credit" || t === "debit" ? t : undefined;
 }
 
+/** Case-insensitive substring match on the person's name / mobile or the note. */
+function ledgerSearch(query?: string) {
+  const term = query?.trim().toLowerCase().slice(0, SEARCH_TERM_LIMIT);
+  if (!term) return undefined;
+  const pattern = `%${escapeLike(term)}%`;
+  return or(
+    sql`lower(${ledgerEntries.note}) LIKE ${pattern} ESCAPE '!'`,
+    inArray(
+      ledgerEntries.personId,
+      db
+        .select({ id: persons.id })
+        .from(persons)
+        .where(
+          or(
+            sql`lower(${persons.name}) LIKE ${pattern} ESCAPE '!'`,
+            sql`${persons.mobile} LIKE ${pattern} ESCAPE '!'`,
+          ),
+        ),
+    ),
+  );
+}
+
 async function ledgersWhere(params: ListParams) {
   const type = typeFilter(params.filter);
   return and(
     ledgerScope(await listScope(params)),
     type ? eq(ledgerEntries.type, type) : undefined,
+    ledgerSearch(params.query),
   );
 }
 
@@ -127,7 +155,11 @@ export type LedgerRow = Awaited<
  * from ledger_balances unless a date / category / type filter needs the rows.
  */
 export async function getLedgersSummary(params: ListParams) {
-  if (balancesCover(params.filter) && !typeFilter(params.filter)) {
+  if (
+    balancesCover(params.filter) &&
+    !typeFilter(params.filter) &&
+    !params.query?.trim()
+  ) {
     const [row] = await db
       .select({
         count: balanceEntries,

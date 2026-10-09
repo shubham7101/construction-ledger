@@ -19,6 +19,7 @@ import {
   validateUserDraft,
 } from "@/features/admin/UserForm";
 import { formatTimestamp } from "@/lib/format";
+import { invalidateUserOptions } from "@/lib/reference-cache";
 import { createUserAction } from "@/server/actions/admin";
 import type { AdminUser } from "@/server/queries/admin";
 
@@ -53,6 +54,7 @@ export const AdminUsersClient: React.FC<{
       });
       if (res.ok) {
         toast("User created");
+        invalidateUserOptions(); // the "Logged by" picker caches users
         setDraft(null);
         router.refresh();
       } else {

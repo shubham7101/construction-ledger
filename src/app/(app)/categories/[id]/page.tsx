@@ -28,7 +28,12 @@ export default async function CategoryDetailPage({
   const { sites } = await getSitesOptions(user);
   const siteId = sites.some((s) => s.id === parsed.site) ? parsed.site : -1;
   const allUsers = firstParam(raw.all);
-  const dates = { dm: parsed.dm, d1: parsed.d1, d2: parsed.d2 };
+  const dates = {
+    dm: parsed.dm,
+    d1: parsed.d1,
+    d2: parsed.d2,
+    createdBy: parsed.by,
+  };
 
   const [summary, feed] = await Promise.all([
     getCategorySummary(categoryId, {

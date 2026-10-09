@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   categories,
@@ -25,6 +25,7 @@ import {
   countAll,
   creditSum,
   debitSum,
+  escapeLike,
   expenseBalanceScope,
   expenseScope,
   expenseTotal,
@@ -158,14 +159,36 @@ const siteSummaryColumns = {
   status: sites.status,
 };
 
-/** Active sites this user can access — the Sites tab list. */
-export async function getSitesList(user: CurrentUser) {
+/**
+ * Active sites this user can access — the Sites tab list — optionally
+ * narrowed by a search over name / city / state / address and by stage.
+ */
+export async function getSitesList(
+  user: CurrentUser,
+  {
+    query = "",
+    stage,
+  }: { query?: string; stage?: "active" | "completed" | "on_hold" } = {},
+) {
   const allowed = await getAllowedSites(user);
+  const term = query.trim().toLowerCase().slice(0, 50);
+  const pattern = `%${escapeLike(term)}%`;
   return db
     .select(siteSummaryColumns)
     .from(sites)
     .where(
-      and(eq(sites.isActive, 1), siteAccessCondition(sites.id, allowed, false)),
+      and(
+        eq(sites.isActive, 1),
+        siteAccessCondition(sites.id, allowed, false),
+        stage ? eq(sites.status, stage) : undefined,
+        term
+          ? or(
+              ...[sites.name, sites.city, sites.state, sites.address].map(
+                (col) => sql`lower(${col}) LIKE ${pattern} ESCAPE '!'`,
+              ),
+            )
+          : undefined,
+      ),
     )
     .orderBy(asc(sites.name));
 }
@@ -254,8 +277,14 @@ export async function getSitePersons(params: FeedParams) {
     user,
     everyone: isShowAllUsers(user, allUsers),
     allowed: await getAllowedSites(user),
-    // dates apply; category / person filters are for the feed, not the roll-up
-    filter: filter && { dm: filter.dm, d1: filter.d1, d2: filter.d2 },
+    // dates and "logged by" apply; category / person filters are for the
+    // feed, not the roll-up
+    filter: filter && {
+      dm: filter.dm,
+      d1: filter.d1,
+      d2: filter.d2,
+      createdBy: filter.createdBy,
+    },
   };
 
   // From ledger_balances unless a date filter needs the entries themselves.

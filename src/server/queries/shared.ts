@@ -31,6 +31,13 @@ export interface ParsedFilters {
   categoryId?: number;
   /** Only this person's ledger entries (-1 or absent = anyone). */
   personId?: number;
+  /**
+   * Admins: only entries / expenses logged by this user (-1 or absent = the
+   * viewer's own, or everyone's with show-all). Ignored for other users.
+   */
+  createdBy?: number;
+  /** Only ledger entries paid this way. Expenses have no mode: none match. */
+  mode?: "cash" | "upi" | "bank_transfer" | "cheque";
 }
 
 const has = (id: number | undefined): id is number =>
@@ -79,6 +86,20 @@ export function siteAccessCondition(
   return inList ?? sql`0`;
 }
 
+/**
+ * Whose rows are in scope: one picked user ("logged by", admins only), else
+ * everyone's with show-all, else the viewer's own.
+ */
+function creatorCondition(
+  column: SQLiteColumn,
+  { user, everyone, filter }: ScopeOptions,
+): SQL | undefined {
+  if (user.role === "admin" && has(filter?.createdBy)) {
+    return eq(column, filter.createdBy);
+  }
+  return everyone ? undefined : eq(column, user.id);
+}
+
 export interface ScopeOptions {
   siteId: number;
   user: CurrentUser;
@@ -87,16 +108,11 @@ export interface ScopeOptions {
   filter?: ParsedFilters;
 }
 
-export function ledgerScope({
-  siteId,
-  user,
-  everyone,
-  allowed,
-  filter,
-}: ScopeOptions) {
+export function ledgerScope(opts: ScopeOptions) {
+  const { siteId, allowed, filter } = opts;
   return and(
     siteId >= 0 ? eq(ledgerEntries.siteId, siteId) : undefined,
-    everyone ? undefined : eq(ledgerEntries.createdBy, user.id),
+    creatorCondition(ledgerEntries.createdBy, opts),
     siteAccessCondition(ledgerEntries.siteId, allowed, true),
     buildDateConditions(ledgerEntries.date, filter),
     has(filter?.categoryId)
@@ -105,35 +121,33 @@ export function ledgerScope({
     has(filter?.personId)
       ? eq(ledgerEntries.personId, filter.personId)
       : undefined,
+    filter?.mode ? eq(ledgerEntries.mode, filter.mode) : undefined,
   );
 }
 
-/** True when the filter narrows ledger rows (date, category or person). */
+/** True when the filter narrows ledger rows (date, category, person, creator or mode). */
 export function isLedgerFiltered(filter?: ParsedFilters): boolean {
   return (
     buildDateConditions(ledgerEntries.date, filter) !== undefined ||
     has(filter?.categoryId) ||
-    has(filter?.personId)
+    has(filter?.personId) ||
+    has(filter?.createdBy) ||
+    Boolean(filter?.mode)
   );
 }
 
-export function expenseScope({
-  siteId,
-  user,
-  everyone,
-  allowed,
-  filter,
-}: ScopeOptions) {
+export function expenseScope(opts: ScopeOptions) {
+  const { siteId, allowed, filter } = opts;
   return and(
     siteId >= 0 ? eq(expenses.siteId, siteId) : undefined,
-    everyone ? undefined : eq(expenses.createdBy, user.id),
+    creatorCondition(expenses.createdBy, opts),
     siteAccessCondition(expenses.siteId, allowed, false),
     buildDateConditions(expenses.date, filter),
     has(filter?.categoryId)
       ? eq(expenses.categoryId, filter.categoryId)
       : undefined,
-    // Expenses aren't tied to a person: a person filter matches none.
-    has(filter?.personId) ? sql`0` : undefined,
+    // Expenses aren't tied to a person or a payment mode: those match none.
+    has(filter?.personId) || filter?.mode ? sql`0` : undefined,
   );
 }
 
@@ -150,26 +164,22 @@ export const balanceExpenses = sql<number>`COALESCE(SUM(${expenseBalances.count}
 
 /**
  * The balance tables hold totals per creator, person and site, so they can
- * stand in for any scope except a date or category filter.
+ * stand in for any scope except a date, category or payment-mode filter.
  */
 export const balancesCover = (filter?: ParsedFilters) =>
   buildDateConditions(ledgerEntries.date, filter) === undefined &&
-  !has(filter?.categoryId);
+  !has(filter?.categoryId) &&
+  !filter?.mode;
 
 /**
  * The ledger_balances rows whose sums equal ledgerScope(opts) totals. Only
  * valid when balancesCover(opts.filter).
  */
-export function ledgerBalanceScope({
-  siteId,
-  user,
-  everyone,
-  allowed,
-  filter,
-}: ScopeOptions) {
+export function ledgerBalanceScope(opts: ScopeOptions) {
+  const { siteId, allowed, filter } = opts;
   return and(
     siteId >= 0 ? eq(ledgerBalances.siteId, siteId) : undefined,
-    everyone ? undefined : eq(ledgerBalances.userId, user.id),
+    creatorCondition(ledgerBalances.userId, opts),
     // As siteAccessCondition with "No site" included; it is stored as 0.
     allowed === null
       ? undefined
@@ -181,16 +191,11 @@ export function ledgerBalanceScope({
 }
 
 /** As ledgerBalanceScope, for expenseScope(opts) and expense_balances. */
-export function expenseBalanceScope({
-  siteId,
-  user,
-  everyone,
-  allowed,
-  filter,
-}: ScopeOptions) {
+export function expenseBalanceScope(opts: ScopeOptions) {
+  const { siteId, allowed, filter } = opts;
   return and(
     siteId >= 0 ? eq(expenseBalances.siteId, siteId) : undefined,
-    everyone ? undefined : eq(expenseBalances.userId, user.id),
+    creatorCondition(expenseBalances.userId, opts),
     siteAccessCondition(expenseBalances.siteId, allowed, false),
     has(filter?.personId) ? sql`0` : undefined,
   );

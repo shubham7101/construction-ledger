@@ -6,10 +6,11 @@ import { memo } from "react";
 import { FilterChip } from "@/components/ui/FilterChip";
 import { ListSentinel } from "@/components/ui/ListSentinel";
 import { ListToolbar } from "@/components/ui/ListToolbar";
+import { PersonFilterChip } from "@/components/ui/PersonFilterChip";
+import { SearchInput } from "@/components/ui/SearchInput";
 import { SiteFilterButton } from "@/components/ui/SiteFilterButton";
 import { useInfiniteList } from "@/hooks/useInfiniteList";
 import { useSheet } from "@/hooks/useSheet";
-import { useUrlParams } from "@/hooks/useUrlParams";
 import { displayDate, fmt } from "@/lib/format";
 import { modeLabel } from "@/lib/labels";
 import type { ParsedSearchParams } from "@/lib/params";
@@ -25,6 +26,8 @@ interface LedgersListClientProps {
   summary: { count: number; credit: number; debit: number };
   sites: ReadonlyArray<{ id: number; name: string }>;
   categories: ReadonlyArray<{ id: number; name: string }>;
+  /** Name for the person filter chip (null when no person is picked). */
+  personName: string | null;
   currentParams: ParsedSearchParams;
 }
 
@@ -71,9 +74,9 @@ export const LedgersListClient: React.FC<LedgersListClientProps> = ({
   summary,
   sites,
   categories,
+  personName,
   currentParams,
 }) => {
-  const { update } = useUrlParams();
   const { openSheet } = useSheet();
 
   const isAdmin = user.role === "admin";
@@ -81,12 +84,14 @@ export const LedgersListClient: React.FC<LedgersListClientProps> = ({
 
   const activeFilters =
     (currentParams.dm && currentParams.dm !== "any" ? 1 : 0) +
-    (currentParams.type && currentParams.type.toLowerCase() !== "all" ? 1 : 0);
+    (currentParams.type && currentParams.type.toLowerCase() !== "all" ? 1 : 0) +
+    (currentParams.mode ? 1 : 0);
 
-  const { dm, d1, d2, type, site, category } = currentParams;
+  const { dm, d1, d2, type, site, category, by, person, mode, q } =
+    currentParams;
   const list = useInfiniteList(firstPage, (cursor) =>
     loadLedgersPageAction(
-      { site, category, all: showAll, type, dm, d1, d2 },
+      { site, category, person, all: showAll, by, type, mode, q, dm, d1, d2 },
       cursor,
     ),
   );
@@ -96,8 +101,15 @@ export const LedgersListClient: React.FC<LedgersListClientProps> = ({
 
   return (
     <>
+      <SearchInput
+        value={q}
+        placeholder="🔍 Search person, mobile or note"
+        ariaLabel="Search entries by person, mobile or note"
+      />
+
       <div className="flex flex-wrap gap-2">
         <SiteFilterButton sites={sites} siteId={currentParams.site} />
+        <PersonFilterChip value={person} label={personName} />
         <FilterChip
           param="category"
           icon="🏷️"
@@ -111,7 +123,7 @@ export const LedgersListClient: React.FC<LedgersListClientProps> = ({
       <ListToolbar
         isAdmin={isAdmin}
         showAll={showAll}
-        onShowAllChange={(value) => update({ all: value })}
+        by={currentParams.by}
         onOpenFilter={() => openSheet("filter", { fk: "ledgers" })}
         activeFilters={activeFilters}
       />

@@ -7,7 +7,6 @@ import { ListToolbar } from "@/components/ui/ListToolbar";
 import { SiteFilterButton } from "@/components/ui/SiteFilterButton";
 import { useInfiniteList } from "@/hooks/useInfiniteList";
 import { useSheet } from "@/hooks/useSheet";
-import { useUrlParams } from "@/hooks/useUrlParams";
 import { displayDate, fmt } from "@/lib/format";
 import type { ParsedSearchParams } from "@/lib/params";
 import { loadExpensesPageAction } from "@/server/actions/lists";
@@ -33,16 +32,15 @@ export const ExpensesListClient: React.FC<ExpensesListClientProps> = ({
   categories,
   currentParams,
 }) => {
-  const { update } = useUrlParams();
   const { openSheet } = useSheet();
 
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
-  const { dm, d1, d2, type, site, category } = currentParams;
+  const { dm, d1, d2, type, site, category, by } = currentParams;
 
   const list = useInfiniteList(firstPage, (cursor) =>
     loadExpensesPageAction(
-      { site, category, all: showAll, type, dm, d1, d2 },
+      { site, category, all: showAll, by, type, dm, d1, d2 },
       cursor,
     ),
   );
@@ -64,10 +62,9 @@ export const ExpensesListClient: React.FC<ExpensesListClientProps> = ({
       <ListToolbar
         isAdmin={isAdmin}
         showAll={showAll}
-        onShowAllChange={(value) => update({ all: value })}
+        by={currentParams.by}
         onOpenFilter={() => openSheet("filter", { fk: "exp" })}
         activeFilters={dm !== "any" ? 1 : 0}
-        allUsersLabel="Show all users’ expenses"
       />
 
       <p className="flex justify-between px-1 text-xs font-semibold text-slate-500">

@@ -1,7 +1,7 @@
 import "server-only";
 import { AppHeader } from "@/features/shell/AppHeader";
 import { parseSearchParams } from "@/lib/params";
-import type { RawSearchParams } from "@/lib/search-params";
+import { firstParam, type RawSearchParams } from "@/lib/search-params";
 import { requireUser } from "@/server/auth/jwt";
 import { getPersonsData } from "@/server/queries/persons";
 import { getReferenceOptions } from "@/server/queries/reference";
@@ -13,7 +13,8 @@ export default async function PersonsPage({
   searchParams: Promise<RawSearchParams>;
 }) {
   const user = await requireUser();
-  const parsed = parseSearchParams(await searchParams);
+  const raw = await searchParams;
+  const parsed = parseSearchParams(raw);
   const siteId = parsed.site;
 
   const [dropdowns, persons] = await Promise.all([
@@ -27,6 +28,8 @@ export default async function PersonsPage({
       sort: parsed.sort,
       // Only admins can look at deactivated persons.
       status: user.role === "admin" ? parsed.status : "active",
+      // Every person, not just those this user has dealt with (admins only).
+      allUsers: firstParam(raw.all),
       user,
     }),
   ]);

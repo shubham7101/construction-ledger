@@ -2,26 +2,43 @@ import "server-only";
 import Link from "next/link";
 import { SiteStatusBadge } from "@/components/ui/SiteStatusBadge";
 import { AppHeader } from "@/features/shell/AppHeader";
+import { parseSearchParams } from "@/lib/params";
+import type { RawSearchParams } from "@/lib/search-params";
 import { requireUser } from "@/server/auth/jwt";
 import { getSitesList } from "@/server/queries/sites";
+import { SitesFilters } from "./SitesFilters";
 
-/** Active sites the user can access; each opens its details page. */
-export default async function SitesPage() {
+/**
+ * Active sites the user can access, searchable and filterable by stage;
+ * each opens its details page.
+ */
+export default async function SitesPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
   const user = await requireUser();
-  const sites = await getSitesList(user);
+  const parsed = parseSearchParams(await searchParams);
+  const sites = await getSitesList(user, {
+    query: parsed.q,
+    stage: parsed.stage,
+  });
+  const filtered = Boolean(parsed.q.trim() || parsed.stage);
 
   return (
     <>
       <AppHeader user={user} title="Sites" />
 
       <div className="space-y-3 px-4 pb-28 pt-2 md:px-6 lg:px-8">
+        <SitesFilters query={parsed.q} stage={parsed.stage} />
+
         <p className="px-1 text-xs font-semibold text-slate-500">
-          {sites.length} active {sites.length === 1 ? "site" : "sites"}
+          {sites.length} {sites.length === 1 ? "site" : "sites"}
         </p>
 
         {sites.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-slate-300 bg-white/60 py-10 text-center text-sm text-slate-500">
-            No active sites.
+            {filtered ? "No sites match these filters." : "No active sites."}
           </p>
         ) : (
           <ul className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">

@@ -79,11 +79,11 @@ export const PassbookClient: React.FC<PassbookClientProps> = ({
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
   const isCreditBalance = net >= 0;
-  const { dm, d1, d2, type } = currentParams;
+  const { dm, d1, d2, type, by } = currentParams;
   const list = useInfiniteList(passbook.entries, (cursor) =>
     loadPassbookPageAction(
       person.id,
-      { site: scope, all: showAll, type, dm, d1, d2 },
+      { site: scope, all: showAll, by, type, dm, d1, d2 },
       cursor,
     ),
   );
@@ -308,7 +308,7 @@ export const PassbookClient: React.FC<PassbookClientProps> = ({
           <ListToolbar
             isAdmin={isAdmin}
             showAll={showAll}
-            onShowAllChange={(value) => update({ all: value })}
+            by={currentParams.by}
             onOpenFilter={() => openSheet("filter", { fk: "pass" })}
             activeFilters={currentParams.dm !== "any" ? 1 : 0}
           />

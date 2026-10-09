@@ -2613,3 +2613,385 @@ describe("a user's own person", () => {
     );
   });
 });
+
+describe("persons list show-all", () => {
+  it("lists every person with their overall balance for admins only", async () => {
+    const { getPersonsData } = await import("@/server/queries/persons");
+    const [idle] = await db
+      .insert(schema.persons)
+      .values({ name: "No Entries Person", mobile: "9777700001", personTypeId })
+      .returning();
+    const [busy] = await db
+      .insert(schema.persons)
+      .values({ name: "Busy Person", mobile: "9777700002", personTypeId })
+      .returning();
+    const entry = (createdBy: number, type: "credit" | "debit", n: number) => ({
+      personId: busy.id,
+      type,
+      amount: n,
+      date: "2026-09-06",
+      siteId: siteAId,
+      categoryId,
+      mode: "cash" as const,
+      createdBy,
+    });
+    // Only the regular user dealt with Busy Person; the admin didn't.
+    await db
+      .insert(schema.ledgerEntries)
+      .values([
+        entry(regularId, "credit", 900),
+        entry(regularId, "debit", 200),
+      ]);
+    await syncBalances();
+
+    const admin = {
+      id: adminId,
+      name: "A",
+      mobile: "9000000001",
+      role: "admin" as const,
+    };
+    const regular = { ...admin, id: regularId, role: "regular" as const };
+    const ids = (rows: { id: number }[]) => rows.map((r) => r.id);
+    const everyPerson = await db
+      .select({ id: schema.persons.id })
+      .from(schema.persons)
+      .where(eq(schema.persons.isActive, 1));
+
+    // Default: only persons the admin has entries with.
+    const own = await getPersonsData({ siteId: -1, user: admin });
+    expect(ids(own)).not.toContain(busy.id);
+    expect(ids(own)).not.toContain(idle.id);
+
+    // Show-all: every active person, the overall balance, 0 with no entries.
+    const all = await getPersonsData({
+      siteId: -1,
+      allUsers: "1",
+      user: admin,
+    });
+    expect(ids(all).sort()).toEqual(ids(everyPerson).sort());
+    expect(all.find((p) => p.id === busy.id)?.net).toBe(700);
+    expect(all.find((p) => p.id === idle.id)?.net).toBe(0);
+    // A site narrows the balance, not the list.
+    const onB = await getPersonsData({
+      siteId: siteBId,
+      allUsers: "1",
+      user: admin,
+    });
+    expect(onB.length).toBe(all.length);
+    expect(onB.find((p) => p.id === busy.id)?.net).toBe(0);
+
+    // Regular users can't use it: same list as without the flag.
+    expect(
+      await getPersonsData({ siteId: -1, allUsers: "1", user: regular }),
+    ).toEqual(await getPersonsData({ siteId: -1, user: regular }));
+  });
+});
+
+describe("logged-by filter", () => {
+  it("shows one user's entries to admins and is ignored for regular users", async () => {
+    const { getLedgersSummary, getExpensesSummary, getLedgersPage } =
+      await import("@/server/queries/entries");
+    const { getSiteDetail, getSitePersons } = await import(
+      "@/server/queries/sites"
+    );
+    const { getPassbookData } = await import("@/server/queries/persons");
+    const { getCategoryBreakdown } = await import(
+      "@/server/queries/categories"
+    );
+    const { loadLedgersPageAction } = await import("@/server/actions/lists");
+
+    const [site] = await db
+      .insert(schema.sites)
+      .values({ name: "Logged By Site", city: "" })
+      .returning();
+    await grantSiteAccess(regularId, site.id);
+    const [p] = await db
+      .insert(schema.persons)
+      .values({ name: "Logged By Person", mobile: "9888800001", personTypeId })
+      .returning();
+    const entry = (createdBy: number, type: "credit" | "debit", n: number) => ({
+      personId: p.id,
+      type,
+      amount: n,
+      date: "2026-09-07",
+      siteId: site.id,
+      categoryId,
+      mode: "cash" as const,
+      createdBy,
+    });
+    await db
+      .insert(schema.ledgerEntries)
+      .values([
+        entry(adminId, "credit", 1000),
+        entry(regularId, "credit", 400),
+        entry(regularId, "debit", 100),
+      ]);
+    await db.insert(schema.expenses).values([
+      {
+        amount: 70,
+        date: "2026-09-07",
+        siteId: site.id,
+        categoryId,
+        createdBy: adminId,
+      },
+      {
+        amount: 30,
+        date: "2026-09-07",
+        siteId: site.id,
+        categoryId,
+        createdBy: regularId,
+      },
+    ]);
+    await db
+      .insert(schema.siteMembership)
+      .values({ personId: p.id, siteId: site.id });
+    await syncBalances();
+
+    const admin = {
+      id: adminId,
+      name: "A",
+      mobile: "9000000001",
+      role: "admin" as const,
+    };
+    const regular = { ...admin, id: regularId, role: "regular" as const };
+    const byRegular = { dm: "any" as const, createdBy: regularId };
+    const wide = {
+      dm: "range" as const,
+      d1: "1900-01-01",
+      d2: "2999-12-31",
+      createdBy: regularId,
+    };
+    const base = { siteId: site.id, user: admin };
+
+    // Admin picks the regular user: only their rows, from the balance
+    // tables and live alike — and it wins over show-all.
+    for (const allUsers of [undefined, "1"]) {
+      const q = { ...base, allUsers };
+      expect(await getLedgersSummary({ ...q, filter: byRegular })).toEqual({
+        count: 2,
+        credit: 400,
+        debit: 100,
+      });
+      expect(await getLedgersSummary({ ...q, filter: wide })).toEqual(
+        await getLedgersSummary({ ...q, filter: byRegular }),
+      );
+      expect(await getExpensesSummary({ ...q, filter: byRegular })).toEqual({
+        count: 1,
+        total: 30,
+      });
+      expect(await getSiteDetail({ ...q, filter: byRegular })).toMatchObject({
+        credit: 400,
+        debit: 130,
+        count: 3,
+      });
+      expect(await getSitePersons({ ...q, filter: byRegular })).toEqual([
+        { id: p.id, name: "Logged By Person", net: 300 },
+      ]);
+      expect(
+        await getPassbookData({
+          personId: p.id,
+          scope: -1,
+          allUsers,
+          filter: byRegular,
+          user: admin,
+        }),
+      ).toMatchObject({ credit: 400, debit: 100, count: 2 });
+      const { grandTotal } = await getCategoryBreakdown({
+        ...q,
+        filter: byRegular,
+      });
+      expect(grandTotal).toBe(530);
+    }
+    const page = await getLedgersPage({ ...base, filter: byRegular });
+    expect(page.items.every((r) => r.createdByUserId === regularId)).toBe(true);
+
+    // Load-more passes it through.
+    await signInAs("admin");
+    const more = await loadLedgersPageAction(
+      { site: site.id, by: regularId, dm: "any" },
+      "",
+    );
+    expect(more.items.map((r) => r.createdByUserId)).toEqual([
+      regularId,
+      regularId,
+    ]);
+
+    // A regular user asking for the admin's entries still gets their own.
+    expect(
+      await getLedgersSummary({
+        siteId: site.id,
+        user: regular,
+        filter: { dm: "any", createdBy: adminId },
+      }),
+    ).toEqual({ count: 2, credit: 400, debit: 100 });
+
+    await revokeSiteAccess(regularId, site.id);
+  });
+});
+
+describe("ledgers search, person and payment-mode filters", () => {
+  it("narrows the list and its totals, live and on load-more", async () => {
+    const { getLedgersSummary, getLedgersPage, getExpensesSummary } =
+      await import("@/server/queries/entries");
+    const { loadLedgersPageAction } = await import("@/server/actions/lists");
+    const { searchPersonsToFilterAction } = await import(
+      "@/server/actions/reference"
+    );
+
+    const [site] = await db
+      .insert(schema.sites)
+      .values({ name: "Search Site", city: "" })
+      .returning();
+    const [kavya, mohan] = await db
+      .insert(schema.persons)
+      .values([
+        { name: "Kavya Searchable", mobile: "9123400001", personTypeId },
+        {
+          name: "Mohan Inactive",
+          mobile: "9123400002",
+          personTypeId,
+          isActive: 0,
+        },
+      ])
+      .returning();
+    const entry = (
+      personId: number,
+      mode: "cash" | "upi" | "cheque",
+      amount: number,
+      note = "",
+    ) => ({
+      personId,
+      type: "credit" as const,
+      amount,
+      date: "2026-09-08",
+      siteId: site.id,
+      categoryId,
+      mode,
+      note,
+      createdBy: adminId,
+    });
+    await db
+      .insert(schema.ledgerEntries)
+      .values([
+        entry(kavya.id, "cash", 100),
+        entry(kavya.id, "upi", 200, "advance for tiles"),
+        entry(mohan.id, "cheque", 400, "final bill"),
+      ]);
+    await syncBalances();
+
+    const user = {
+      id: adminId,
+      name: "A",
+      mobile: "9000000001",
+      role: "admin" as const,
+    };
+    const base = { siteId: site.id, user };
+    const any = { dm: "any" as const };
+    const total = async (params: Parameters<typeof getLedgersSummary>[0]) => {
+      const summary = await getLedgersSummary(params);
+      const page = await getLedgersPage(params);
+      // The totals and the rows agree.
+      expect(page.items.length).toBe(summary.count);
+      return summary.credit;
+    };
+
+    expect(await total({ ...base, filter: any })).toBe(700);
+    // Search: person name, mobile, note — case-insensitive.
+    expect(await total({ ...base, filter: any, query: "KAVYA" })).toBe(300);
+    expect(await total({ ...base, filter: any, query: "23400002" })).toBe(400);
+    expect(await total({ ...base, filter: any, query: "tiles" })).toBe(200);
+    expect(await total({ ...base, filter: any, query: "nobody" })).toBe(0);
+    // Person filter.
+    expect(
+      await total({ ...base, filter: { ...any, personId: kavya.id } }),
+    ).toBe(300);
+    // Payment mode — expenses have none, so a mode matches no expense.
+    expect(await total({ ...base, filter: { ...any, mode: "cheque" } })).toBe(
+      400,
+    );
+    expect(
+      await getExpensesSummary({ ...base, filter: { ...any, mode: "cash" } }),
+    ).toEqual({ count: 0, total: 0 });
+    // Combined.
+    expect(
+      await total({
+        ...base,
+        filter: { ...any, personId: kavya.id, mode: "upi" },
+        query: "advance",
+      }),
+    ).toBe(200);
+
+    // Load-more passes them all through.
+    await signInAs("admin");
+    const more = await loadLedgersPageAction(
+      { site: site.id, dm: "any", q: "kavya", mode: "cash" },
+      "",
+    );
+    expect(more.items.map((r) => r.amount)).toEqual([100]);
+    const byPerson = await loadLedgersPageAction(
+      { site: site.id, dm: "any", person: mohan.id },
+      "",
+    );
+    expect(byPerson.items.map((r) => r.amount)).toEqual([400]);
+
+    // The filter picker offers inactive persons too (the entry form doesn't).
+    expect(
+      (await searchPersonsToFilterAction("mohan")).map((p) => p.id),
+    ).toEqual([mohan.id]);
+  });
+});
+
+describe("sites list search and stage filter", () => {
+  it("filters by text and stage within the sites the user can access", async () => {
+    const { getSitesList } = await import("@/server/queries/sites");
+    const made = await db
+      .insert(schema.sites)
+      .values([
+        { name: "Zeta Heights", city: "Surat", status: "active" },
+        { name: "Zeta Mall", city: "Rajkot", status: "on_hold" },
+        {
+          name: "Zeta Villas",
+          city: "Surat",
+          address: "Ring Road",
+          status: "completed",
+        },
+        { name: "Zeta Old", city: "Surat", isActive: 0 },
+      ])
+      .returning();
+    const [heights, mall, villas] = made;
+    const admin = {
+      id: adminId,
+      name: "A",
+      mobile: "9000000001",
+      role: "admin" as const,
+    };
+    const ids = async (opts: Parameters<typeof getSitesList>[1]) =>
+      (await getSitesList(admin, opts)).map((s) => s.id);
+
+    // Deactivated sites never show.
+    expect(await ids({ query: "zeta" })).toEqual([
+      heights.id,
+      mall.id,
+      villas.id,
+    ]);
+    expect(await ids({ query: "SURAT" })).toEqual(
+      expect.arrayContaining([heights.id, villas.id]),
+    );
+    expect(await ids({ query: "surat" })).not.toContain(mall.id);
+    expect(await ids({ query: "ring road" })).toEqual([villas.id]);
+    expect(await ids({ query: "zeta", stage: "on_hold" })).toEqual([mall.id]);
+    expect(await ids({ query: "zeta", stage: "completed" })).toEqual([
+      villas.id,
+    ]);
+    // Wildcards in the search are literal.
+    expect(await ids({ query: "%" })).toEqual([]);
+
+    // A regular user only finds sites they have access to.
+    await grantSiteAccess(regularId, mall.id);
+    const regular = { ...admin, id: regularId, role: "regular" as const };
+    expect(
+      (await getSitesList(regular, { query: "zeta" })).map((s) => s.id),
+    ).toEqual([mall.id]);
+    await revokeSiteAccess(regularId, mall.id);
+  });
+});

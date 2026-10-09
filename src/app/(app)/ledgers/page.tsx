@@ -4,6 +4,7 @@ import { parseSearchParams, toFilter } from "@/lib/params";
 import { firstParam, type RawSearchParams } from "@/lib/search-params";
 import { requireUser } from "@/server/auth/jwt";
 import { getLedgersPage, getLedgersSummary } from "@/server/queries/entries";
+import { getPersonName } from "@/server/queries/persons";
 import { getReferenceOptions } from "@/server/queries/reference";
 import { LedgersListClient } from "./LedgersListClient";
 
@@ -18,11 +19,18 @@ export default async function LedgersPage({
   const siteId = parsed.site;
   const allUsers = firstParam(raw.all);
 
-  const listParams = { siteId, allUsers, filter: toFilter(parsed), user };
-  const [dropdowns, firstPage, summary] = await Promise.all([
+  const listParams = {
+    siteId,
+    allUsers,
+    filter: toFilter(parsed),
+    query: parsed.q,
+    user,
+  };
+  const [dropdowns, firstPage, summary, personName] = await Promise.all([
     getReferenceOptions(user),
     getLedgersPage(listParams),
     getLedgersSummary(listParams),
+    getPersonName(parsed.person),
   ]);
 
   return (
@@ -36,6 +44,7 @@ export default async function LedgersPage({
           categories={dropdowns.categories}
           firstPage={firstPage}
           summary={summary}
+          personName={personName}
           currentParams={parsed}
         />
       </div>

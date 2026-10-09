@@ -56,7 +56,7 @@ export const SiteDetailClient: React.FC<SiteDetailClientProps> = ({
 
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
-  const { dm, d1, d2, type, category, person } = currentParams;
+  const { dm, d1, d2, type, category, person, by } = currentParams;
   const activeFilters =
     (dm !== "any" ? 1 : 0) +
     (type && type !== "all" && type !== "All Activity" ? 1 : 0);
@@ -207,7 +207,7 @@ export const SiteDetailClient: React.FC<SiteDetailClientProps> = ({
           <ListToolbar
             isAdmin={isAdmin}
             showAll={showAll}
-            onShowAllChange={(value) => update({ all: value })}
+            by={currentParams.by}
             onOpenFilter={() => openSheet("filter", { fk: "site" })}
             activeFilters={activeFilters}
           />
@@ -222,7 +222,7 @@ export const SiteDetailClient: React.FC<SiteDetailClientProps> = ({
             loadPage={(cursor) =>
               loadFeedPageAction(
                 site.id,
-                { all: showAll, type, dm, d1, d2, category, person },
+                { all: showAll, by, type, dm, d1, d2, category, person },
                 cursor,
               )
             }

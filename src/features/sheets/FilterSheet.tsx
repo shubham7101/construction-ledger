@@ -63,6 +63,15 @@ const TYPE_OPTIONS: Record<
   },
 };
 
+/** Ledgers only: payment mode (ledger_entries.mode). */
+const MODE_OPTIONS: Array<[string, string]> = [
+  ["any", "All"],
+  ["cash", "Cash"],
+  ["upi", "UPI"],
+  ["bank_transfer", "Bank"],
+  ["cheque", "Cheque"],
+];
+
 const DATE_SELECTS = [
   { options: DAYS, placeholder: "DD", label: "Day", index: 0 },
   { options: MONTHS, placeholder: "MM", label: "Month", index: 1 },
@@ -80,8 +89,10 @@ export const FilterSheet: React.FC = () => {
       : null;
 
   const typeConfig = fk ? TYPE_OPTIONS[fk] : undefined;
+  const hasMode = fk === "ledgers";
 
   const [typeVal, setTypeVal] = useState("all");
+  const [modeVal, setModeVal] = useState("any");
   const [dm, setDm] = useState<DateMode>("any");
   const [d1, setD1] = useState<DateParts>(EMPTY_PARTS);
   const [d2, setD2] = useState<DateParts>(EMPTY_PARTS);
@@ -90,6 +101,7 @@ export const FilterSheet: React.FC = () => {
   useEffect(() => {
     if (!fk) return;
     setTypeVal(searchParams.get("type") || TYPE_OPTIONS[fk]?.fallback || "all");
+    setModeVal(searchParams.get("mode") || "any");
     setDm((searchParams.get("dm") as DateMode) || "any");
     setD1(isoToParts(searchParams.get("d1") || ""));
     setD2(isoToParts(searchParams.get("d2") || ""));
@@ -108,6 +120,7 @@ export const FilterSheet: React.FC = () => {
       ...(typeConfig
         ? { type: typeVal === typeConfig.fallback ? undefined : typeVal }
         : {}),
+      ...(hasMode ? { mode: modeVal === "any" ? undefined : modeVal } : {}),
       dm: dm === "any" ? undefined : dm,
       d1: iso1 || undefined,
       d2: iso2 || undefined,
@@ -121,6 +134,7 @@ export const FilterSheet: React.FC = () => {
   const clear = () => {
     update({
       type: undefined,
+      mode: undefined,
       dm: undefined,
       d1: undefined,
       d2: undefined,
@@ -185,6 +199,19 @@ export const FilterSheet: React.FC = () => {
               options={typeConfig.options}
               value={typeVal}
               onChange={setTypeVal}
+            />
+          </div>
+        )}
+
+        {hasMode && (
+          <div className="space-y-1">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Payment mode
+            </p>
+            <Segmented
+              options={MODE_OPTIONS}
+              value={modeVal}
+              onChange={setModeVal}
             />
           </div>
         )}

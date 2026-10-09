@@ -5,7 +5,6 @@ import type React from "react";
 import { ListToolbar } from "@/components/ui/ListToolbar";
 import { FeedList } from "@/features/feed/FeedList";
 import { useSheet } from "@/hooks/useSheet";
-import { useUrlParams } from "@/hooks/useUrlParams";
 import { fmt } from "@/lib/format";
 import type { ParsedSearchParams } from "@/lib/params";
 import { loadFeedPageAction } from "@/server/actions/lists";
@@ -28,12 +27,11 @@ export const CategoryDetailClient: React.FC<{
   currentParams: ParsedSearchParams;
 }> = ({ user, summary, feed, siteId, siteName, currentParams }) => {
   const router = useRouter();
-  const { update } = useUrlParams();
   const { openSheet } = useSheet();
 
   const isAdmin = user.role === "admin";
   const showAll = isAdmin && currentParams.all;
-  const { dm, d1, d2 } = currentParams;
+  const { dm, d1, d2, by } = currentParams;
   const categoryId = summary.category.id;
 
   return (
@@ -101,7 +99,7 @@ export const CategoryDetailClient: React.FC<{
           <ListToolbar
             isAdmin={isAdmin}
             showAll={showAll}
-            onShowAllChange={(value) => update({ all: value })}
+            by={currentParams.by}
             onOpenFilter={() => openSheet("filter", { fk: "cat" })}
             activeFilters={dm !== "any" ? 1 : 0}
           />
@@ -113,7 +111,7 @@ export const CategoryDetailClient: React.FC<{
             loadPage={(cursor) =>
               loadFeedPageAction(
                 siteId,
-                { all: showAll, dm, d1, d2, category: categoryId },
+                { all: showAll, by, dm, d1, d2, category: categoryId },
                 cursor,
               )
             }
