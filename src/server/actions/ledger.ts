@@ -2,6 +2,7 @@
 
 import "server-only";
 import { and, eq, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { db } from "@/db";
 import {
   categories,
@@ -48,6 +49,16 @@ export interface LedgerEntryDetail {
   recordedBy: string;
   /** Admins and the entry's creator may edit or delete it. */
   canEdit: boolean;
+  /**
+   * Another user's entry against the viewer's own person, as the viewer's
+   * passbook shows it: under the creator's person, credit and debit swapped.
+   * Display only; the fields above stay as stored, for the edit form.
+   */
+  mirrored?: {
+    personId: number;
+    personName: string;
+    type: "credit" | "debit";
+  };
 }
 
 async function findOwnership(id: number) {
@@ -222,11 +233,16 @@ export async function getLedgerEntryAction(
   try {
     const user = await requireUser();
 
+    // The creator's own person: the other side of a mirrored entry.
+    const creatorPerson = alias(persons, "creator_person");
     const [row] = await db
       .select({
         id: ledgerEntries.id,
         personId: ledgerEntries.personId,
         personName: persons.name,
+        personUserId: persons.userId,
+        creatorPersonId: creatorPerson.id,
+        creatorPersonName: creatorPerson.name,
         type: ledgerEntries.type,
         amount: ledgerEntries.amount,
         date: ledgerEntries.date,
@@ -244,13 +260,35 @@ export async function getLedgerEntryAction(
       .innerJoin(categories, eq(ledgerEntries.categoryId, categories.id))
       .innerJoin(users, eq(ledgerEntries.createdBy, users.id))
       .leftJoin(sites, eq(ledgerEntries.siteId, sites.id))
+      .leftJoin(
+        creatorPerson,
+        eq(creatorPerson.userId, ledgerEntries.createdBy),
+      )
       .where(eq(ledgerEntries.id, id))
       .limit(1);
 
     if (!row) return null;
     if (!(await canAccessSite(user, row.siteId))) return null;
-    const { createdBy, ...detail } = row;
-    return { ...detail, canEdit: canEditOrDeleteRecord(user, createdBy) };
+    const {
+      createdBy,
+      personUserId,
+      creatorPersonId,
+      creatorPersonName,
+      ...detail
+    } = row;
+    const canEdit = canEditOrDeleteRecord(user, createdBy);
+    const mirrored: LedgerEntryDetail["mirrored"] =
+      personUserId === user.id &&
+      createdBy !== user.id &&
+      creatorPersonId !== null &&
+      creatorPersonName !== null
+        ? {
+            personId: creatorPersonId,
+            personName: creatorPersonName,
+            type: detail.type === "credit" ? "debit" : "credit",
+          }
+        : undefined;
+    return { ...detail, canEdit, mirrored };
   } catch (err: unknown) {
     rethrowIfRedirect(err);
     return null;

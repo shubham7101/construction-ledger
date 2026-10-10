@@ -21,24 +21,27 @@ import {
   toPage,
 } from "./pagination";
 import {
-  balanceCredit,
-  balanceDebit,
   balanceEntries,
   balanceExpense,
   balanceExpenses,
   balancesCover,
   countAll,
-  creditSum,
-  debitSum,
   escapeLike,
   expenseBalanceScope,
   expenseScope,
   expenseTotal,
   getAllowedSites,
+  getListMirror,
   ledgerBalanceScope,
   ledgerScope,
   type ParsedFilters,
   type ScopeOptions,
+  viewerBalanceCredit,
+  viewerBalanceDebit,
+  viewerCreditSum,
+  viewerDebitSum,
+  viewerPersonId,
+  viewerType,
 } from "./shared";
 
 export interface ListParams {
@@ -62,13 +65,13 @@ async function listScope({
   filter,
   user,
 }: ListParams): Promise<ScopeOptions> {
-  return {
-    siteId,
-    user,
-    everyone: isShowAllUsers(user, allUsers),
-    allowed: await getAllowedSites(user),
-    filter,
-  };
+  const everyone = isShowAllUsers(user, allUsers);
+  // Entries other users log against the viewer's own person are theirs too.
+  const [allowed, mirror] = await Promise.all([
+    getAllowedSites(user),
+    getListMirror(user, everyone, filter),
+  ]);
+  return { siteId, user, everyone, allowed, filter, mirror };
 }
 
 /** "credit" / "debit", or undefined for both. */
@@ -79,14 +82,14 @@ function typeFilter(filter?: ParsedFilters) {
 }
 
 /** Case-insensitive substring match on the person's name / mobile or the note. */
-function ledgerSearch(query?: string) {
+function ledgerSearch(scope: ScopeOptions, query?: string) {
   const term = query?.trim().toLowerCase().slice(0, SEARCH_TERM_LIMIT);
   if (!term) return undefined;
   const pattern = `%${escapeLike(term)}%`;
   return or(
     sql`lower(${ledgerEntries.note}) LIKE ${pattern} ESCAPE '!'`,
     inArray(
-      ledgerEntries.personId,
+      viewerPersonId(scope),
       db
         .select({ id: persons.id })
         .from(persons)
@@ -100,12 +103,12 @@ function ledgerSearch(query?: string) {
   );
 }
 
-async function ledgersWhere(params: ListParams) {
+function ledgersWhere(params: ListParams, scope: ScopeOptions) {
   const type = typeFilter(params.filter);
   return and(
-    ledgerScope(await listScope(params)),
-    type ? eq(ledgerEntries.type, type) : undefined,
-    ledgerSearch(params.query),
+    ledgerScope(scope),
+    type ? eq(viewerType(scope), type) : undefined,
+    ledgerSearch(scope, params.query),
   );
 }
 
@@ -114,12 +117,15 @@ export async function getLedgersPage(
   params: ListParams & { cursor?: string | null },
 ) {
   const cursor = decodeCursor(params.cursor);
+  const scope = await listScope(params);
+  // A mirrored entry reads from the viewer's side.
+  const personId = viewerPersonId(scope);
   const rows = await db
     .select({
       id: ledgerEntries.id,
-      personId: ledgerEntries.personId,
+      personId,
       personName: persons.name,
-      type: ledgerEntries.type,
+      type: viewerType(scope),
       amount: ledgerEntries.amount,
       date: ledgerEntries.date,
       siteId: ledgerEntries.siteId,
@@ -131,13 +137,13 @@ export async function getLedgersPage(
       createdByUserId: ledgerEntries.createdBy,
     })
     .from(ledgerEntries)
-    .innerJoin(persons, eq(ledgerEntries.personId, persons.id))
+    .innerJoin(persons, eq(persons.id, personId))
     .leftJoin(sites, eq(ledgerEntries.siteId, sites.id))
     .innerJoin(categories, eq(ledgerEntries.categoryId, categories.id))
     .innerJoin(users, eq(ledgerEntries.createdBy, users.id))
     .where(
       and(
-        await ledgersWhere(params),
+        ledgersWhere(params, scope),
         afterCursor(ledgerEntries.date, ledgerEntries.id, cursor),
       ),
     )
@@ -155,6 +161,7 @@ export type LedgerRow = Awaited<
  * from ledger_balances unless a date / category / type filter needs the rows.
  */
 export async function getLedgersSummary(params: ListParams) {
+  const scope = await listScope(params);
   if (
     balancesCover(params.filter) &&
     !typeFilter(params.filter) &&
@@ -163,11 +170,11 @@ export async function getLedgersSummary(params: ListParams) {
     const [row] = await db
       .select({
         count: balanceEntries,
-        credit: balanceCredit,
-        debit: balanceDebit,
+        credit: viewerBalanceCredit(scope),
+        debit: viewerBalanceDebit(scope),
       })
       .from(ledgerBalances)
-      .where(ledgerBalanceScope(await listScope(params)));
+      .where(ledgerBalanceScope(scope));
     return {
       count: row?.count ?? 0,
       credit: row?.credit ?? 0,
@@ -175,9 +182,13 @@ export async function getLedgersSummary(params: ListParams) {
     };
   }
   const [row] = await db
-    .select({ count: countAll, credit: creditSum, debit: debitSum })
+    .select({
+      count: countAll,
+      credit: viewerCreditSum(scope),
+      debit: viewerDebitSum(scope),
+    })
     .from(ledgerEntries)
-    .where(await ledgersWhere(params));
+    .where(ledgersWhere(params, scope));
   return {
     count: row?.count ?? 0,
     credit: row?.credit ?? 0,

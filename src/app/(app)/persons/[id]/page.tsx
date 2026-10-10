@@ -35,7 +35,7 @@ export default async function PersonPassbookPage({
   // after them: one round trip, unless the person turns out to have no entries
   // on that site and it must be reloaded for all sites.
   const [sites, selected] = await Promise.all([
-    getPersonSites(personId, user),
+    getPersonSites(personId, user, firstParam(raw.all)),
     load(parsed.site),
   ]);
   const scope = sites.some((s) => s.id === parsed.site) ? parsed.site : -1;

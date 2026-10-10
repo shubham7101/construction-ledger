@@ -2620,6 +2620,261 @@ describe("a user's own person", () => {
   });
 });
 
+describe("entries between two users", () => {
+  it("show on both sides, credit and debit swapped", async () => {
+    const { getPassbookData, getPersonSites, getPersonsData } = await import(
+      "@/server/queries/persons"
+    );
+    const linkedPerson = async (userId: number, mobile: string) => {
+      const [existing] = await db
+        .select()
+        .from(schema.persons)
+        .where(eq(schema.persons.userId, userId));
+      if (existing) return existing;
+      const [created] = await db
+        .insert(schema.persons)
+        .values({ name: "Linked", mobile, personTypeId, userId })
+        .returning();
+      return created;
+    };
+    const ownAdmin = await linkedPerson(adminId, "9666600001");
+    const ownRegular = await linkedPerson(regularId, "9666600002");
+    const admin = {
+      id: adminId,
+      name: "A",
+      mobile: "9000000001",
+      role: "admin" as const,
+    };
+    const regular = { ...admin, id: regularId, role: "regular" as const };
+    await grantSiteAccess(regularId, siteAId);
+
+    const net = async (user: typeof admin | typeof regular, pid: number) =>
+      (await getPersonsData({ siteId: -1, user })).find((p) => p.id === pid)
+        ?.net ?? 0;
+    const { getOverviewData } = await import("@/server/queries/overview");
+    const before = {
+      admin: await net(admin, ownRegular.id),
+      regular: await net(regular, ownAdmin.id),
+      overview: await getOverviewData({ siteId: -1, user: regular }),
+    };
+    const entry = (
+      pid: number,
+      type: "credit" | "debit",
+      amount: number,
+      siteId: number | null,
+    ) => ({
+      personId: pid,
+      type,
+      amount,
+      date: "2026-01-03",
+      siteId,
+      categoryId,
+      mode: "cash",
+      note: "BETWEEN_USERS",
+    });
+
+    // The admin gives the regular user 200 on site A; the regular user
+    // records 100 got from the admin, on no site.
+    await expectOk(
+      "admin debit to the regular user's person",
+      actions.createLedgerEntryAction(
+        entry(ownRegular.id, "debit", 200, siteAId),
+      ),
+    );
+    await signInAs("regular");
+    await expectOk(
+      "regular credit from the admin's person",
+      actions.createLedgerEntryAction(entry(ownAdmin.id, "credit", 100, null)),
+    );
+    const [adminEntry] = await db
+      .select({ id: schema.ledgerEntries.id })
+      .from(schema.ledgerEntries)
+      .where(
+        and(
+          eq(schema.ledgerEntries.note, "BETWEEN_USERS"),
+          eq(schema.ledgerEntries.createdBy, adminId),
+        ),
+      );
+
+    // Persons list: each side counts both entries, the other's swapped.
+    expect(await net(admin, ownRegular.id)).toBe(before.admin - 300);
+    expect(await net(regular, ownAdmin.id)).toBe(before.regular + 300);
+
+    // Passbook: the same from the balance tables and from the entries.
+    const day = { dm: "day" as const, d1: "2026-01-03" };
+    const pb = await getPassbookData({
+      personId: ownAdmin.id,
+      scope: -1,
+      user: regular,
+    });
+    expect(pb?.net).toBe(before.regular + 300);
+    const onDay = await getPassbookData({
+      personId: ownAdmin.id,
+      scope: -1,
+      filter: day,
+      user: regular,
+    });
+    expect([onDay?.credit, onDay?.debit, onDay?.count]).toEqual([300, 0, 2]);
+    expect(onDay?.entries.items.map((e) => e.type)).toEqual([
+      "credit",
+      "credit",
+    ]);
+    const adminDay = await getPassbookData({
+      personId: ownRegular.id,
+      scope: -1,
+      filter: day,
+      user: admin,
+    });
+    expect([adminDay?.credit, adminDay?.debit]).toEqual([0, 300]);
+    // On site A only the admin's entry.
+    const onA = await getPassbookData({
+      personId: ownAdmin.id,
+      scope: siteAId,
+      user: regular,
+    });
+    expect(onA?.entries.items.map((e) => e.id)).toContain(adminEntry.id);
+
+    // The mirrored entry's site is one of the passbook's tabs.
+    expect(
+      (await getPersonSites(ownAdmin.id, regular)).map((s) => s.id),
+    ).toContain(siteAId);
+
+    // Show-all and logged-by stay raw: entries against the person only.
+    const all = await getPassbookData({
+      personId: ownRegular.id,
+      scope: -1,
+      allUsers: "1",
+      filter: day,
+      user: admin,
+    });
+    expect([all?.credit, all?.debit, all?.count]).toEqual([0, 200, 1]);
+    const byAdmin = await getPassbookData({
+      personId: ownRegular.id,
+      scope: -1,
+      filter: { ...day, createdBy: adminId },
+      user: admin,
+    });
+    expect([byAdmin?.debit, byAdmin?.count]).toEqual([200, 1]);
+
+    // Detail: the regular user sees the admin's entry from their side.
+    // Display only: the stored fields stay as they are, for the edit form.
+    const seen = await actions.getLedgerEntryAction(adminEntry.id);
+    expect(seen?.mirrored).toEqual({
+      personId: ownAdmin.id,
+      personName: ownAdmin.name,
+      type: "credit",
+    });
+    expect([seen?.personId, seen?.type, seen?.canEdit]).toEqual([
+      ownRegular.id,
+      "debit",
+      false,
+    ]);
+    await signInAs("admin");
+    const raw = await actions.getLedgerEntryAction(adminEntry.id);
+    expect([raw?.personId, raw?.type, raw?.mirrored]).toEqual([
+      ownRegular.id,
+      "debit",
+      undefined,
+    ]);
+
+    // Overview: both entries, from the regular user's side.
+    const after = await getOverviewData({ siteId: -1, user: regular });
+    expect(after.credit - before.overview.credit).toBe(300);
+    expect(after.debit - before.overview.debit).toBe(0);
+    expect(after.entriesCount - before.overview.entriesCount).toBe(2);
+  });
+
+  it("show in the ledgers, site, category and overview totals too", async () => {
+    const { getLedgersPage, getLedgersSummary } = await import(
+      "@/server/queries/entries"
+    );
+    const { getSiteDetail, getSitePersons } = await import(
+      "@/server/queries/sites"
+    );
+    const { getCategoryBreakdown } = await import(
+      "@/server/queries/categories"
+    );
+    const { getOverviewData } = await import("@/server/queries/overview");
+    // The entries of the test above: the admin's debit 200 on site A and the
+    // regular user's credit 100, both on this day.
+    const [ownAdmin] = await db
+      .select()
+      .from(schema.persons)
+      .where(eq(schema.persons.userId, adminId));
+    const admin = {
+      id: adminId,
+      name: "A",
+      mobile: "9000000001",
+      role: "admin" as const,
+    };
+    const regular = { ...admin, id: regularId, role: "regular" as const };
+    const day = { dm: "day" as const, d1: "2026-01-03" };
+
+    // Ledgers: both entries, under the admin's person, as credits.
+    const summary = (user: typeof admin | typeof regular, t?: string) =>
+      getLedgersSummary({ siteId: -1, filter: { ...day, t }, user });
+    expect(await summary(regular)).toEqual({ count: 2, credit: 300, debit: 0 });
+    expect(await summary(admin)).toEqual({ count: 2, credit: 0, debit: 300 });
+    expect((await summary(regular, "credit")).count).toBe(2);
+    expect((await summary(regular, "debit")).count).toBe(0);
+    const page = await getLedgersPage({
+      siteId: -1,
+      filter: day,
+      user: regular,
+    });
+    expect(page.items.map((e) => [e.personId, e.type])).toEqual([
+      [ownAdmin.id, "credit"],
+      [ownAdmin.id, "credit"],
+    ]);
+    // Search and the person filter go by the person shown.
+    const found = await getLedgersSummary({
+      siteId: -1,
+      filter: day,
+      query: ownAdmin.mobile,
+      user: regular,
+    });
+    expect(found.count).toBe(2);
+    const byPerson = await getLedgersSummary({
+      siteId: -1,
+      filter: { ...day, personId: ownAdmin.id },
+      user: regular,
+    });
+    expect(byPerson).toEqual({ count: 2, credit: 300, debit: 0 });
+
+    // Site A: the admin's entry, and the admin's person among its persons.
+    const site = await getSiteDetail({
+      siteId: siteAId,
+      filter: day,
+      user: regular,
+    });
+    expect([site?.credit, site?.debit]).toEqual([200, 0]);
+    expect(site?.feed.items.find((e) => e.k === "L")).toMatchObject({
+      personId: ownAdmin.id,
+      type: "credit",
+    });
+    const sitePersons = await getSitePersons({
+      siteId: siteAId,
+      user: regular,
+    });
+    expect(sitePersons.map((p) => p.id)).toContain(ownAdmin.id);
+
+    // Categories: money received.
+    const cats = await getCategoryBreakdown({
+      siteId: -1,
+      filter: day,
+      user: regular,
+    });
+    expect(cats.receivedTotal).toBe(300);
+    expect(cats.spentTotal).toBe(0);
+
+    // Overview: the admin's 200 is in the regular user's hero and activity.
+    const overview = await getOverviewData({ siteId: -1, user: regular });
+    expect(
+      overview.recentActivity.find((a) => a.k === "L" && a.amount === 200),
+    ).toMatchObject({ title: ownAdmin.name, type: "credit" });
+  });
+});
+
 describe("persons list show-all", () => {
   it("lists every person with their overall balance for admins only", async () => {
     const { getPersonsData } = await import("@/server/queries/persons");

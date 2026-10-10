@@ -5,13 +5,15 @@ import { categories, expenses, ledgerEntries } from "@/db/schema";
 import type { CurrentUser } from "@/server/auth/jwt";
 import { isShowAllUsers } from "@/server/permissions";
 import {
-  creditSum,
-  debitSum,
   expenseScope,
   expenseTotal,
   getAllowedSites,
+  getListMirror,
   ledgerScope,
   type ParsedFilters,
+  type ScopeOptions,
+  viewerCreditSum,
+  viewerDebitSum,
 } from "./shared";
 
 interface CategoryParams {
@@ -22,15 +24,26 @@ interface CategoryParams {
 }
 
 async function scopes({ siteId, allUsers, filter, user }: CategoryParams) {
-  const allowed = await getAllowedSites(user);
-  const opts = {
+  const everyone = isShowAllUsers(user, allUsers);
+  // Entries other users log against the viewer's own person count, mirrored.
+  const [allowed, mirror] = await Promise.all([
+    getAllowedSites(user),
+    getListMirror(user, everyone, filter),
+  ]);
+  const opts: ScopeOptions = {
     siteId,
     user,
-    everyone: isShowAllUsers(user, allUsers),
+    everyone,
     allowed,
     filter,
+    mirror,
   };
-  return { ledgerWhere: ledgerScope(opts), expenseWhere: expenseScope(opts) };
+  return {
+    ledgerWhere: ledgerScope(opts),
+    expenseWhere: expenseScope(opts),
+    credit: viewerCreditSum(opts),
+    debit: viewerDebitSum(opts),
+  };
 }
 
 /**
@@ -40,15 +53,15 @@ async function scopes({ siteId, allUsers, filter, user }: CategoryParams) {
  * spending. Only categories with activity are returned, biggest spend first.
  */
 export async function getCategoryBreakdown(params: CategoryParams) {
-  const { ledgerWhere, expenseWhere } = await scopes(params);
+  const { ledgerWhere, expenseWhere, credit, debit } = await scopes(params);
 
   const [cats, ledgerRows, expenseRows] = await Promise.all([
     db.select({ id: categories.id, name: categories.name }).from(categories),
     db
       .select({
         categoryId: ledgerEntries.categoryId,
-        credit: creditSum,
-        debit: debitSum,
+        credit,
+        debit,
       })
       .from(ledgerEntries)
       .where(ledgerWhere)
@@ -111,7 +124,7 @@ export async function getCategorySummary(
     ...params,
     filter: { ...(params.filter ?? { dm: "any" as const }), categoryId },
   };
-  const { ledgerWhere, expenseWhere } = await scopes(scoped);
+  const { ledgerWhere, expenseWhere, credit, debit } = await scopes(scoped);
   // In parallel: for an unknown category the totals are just discarded.
   const [[category], [ledger], [expense]] = await Promise.all([
     db
@@ -119,10 +132,7 @@ export async function getCategorySummary(
       .from(categories)
       .where(eq(categories.id, categoryId))
       .limit(1),
-    db
-      .select({ credit: creditSum, debit: debitSum })
-      .from(ledgerEntries)
-      .where(and(ledgerWhere)),
+    db.select({ credit, debit }).from(ledgerEntries).where(and(ledgerWhere)),
     db.select({ total: expenseTotal }).from(expenses).where(expenseWhere),
   ]);
   if (!category) return null;

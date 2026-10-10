@@ -94,7 +94,12 @@ export async function loadPassbookPageAction(
 ): Promise<Page<PassbookRow>> {
   const user = await requireUser();
   const { siteId, ...rest } = parseFilters(filters);
-  const { scope } = await getPassbookScope(personId, user, siteId);
+  const { scope } = await getPassbookScope(
+    personId,
+    user,
+    siteId,
+    rest.allUsers,
+  );
   return getPassbookPage({ ...rest, personId, scope, user, cursor });
 }
 

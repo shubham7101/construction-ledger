@@ -1,5 +1,6 @@
 import "server-only";
-import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { db } from "@/db";
 import {
   categories,
@@ -16,21 +17,25 @@ import type { CurrentUser } from "@/server/auth/jwt";
 import { isShowAllUsers } from "@/server/permissions";
 import { afterCursor, decodeCursor, PAGE_SIZE, toPage } from "./pagination";
 import {
-  balanceCredit,
-  balanceDebit,
   balanceEntries,
   balancesCover,
   countAll,
-  creditSum,
-  debitSum,
   escapeLike,
   getAllowedSites,
+  getMirror,
+  getOwnPersonId,
   isLedgerFiltered,
+  isOwnScope,
   ledgerBalanceScope,
   ledgerScope,
   type ParsedFilters,
   type ScopeOptions,
   siteAccessCondition,
+  viewerBalanceCredit,
+  viewerBalanceDebit,
+  viewerCreditSum,
+  viewerDebitSum,
+  viewerType,
 } from "./shared";
 
 export async function getPersonsData(params: {
@@ -55,14 +60,28 @@ export async function getPersonsData(params: {
   } = params;
   // By default the logged-in user's own entries, admins included: the list
   // shows only persons they have dealt with, and the balance between the two
-  // of them. With show-all (admins), every person and their overall balance.
+  // of them. A person linked to a user also counts that user's entries
+  // against the viewer's own person, mirrored. With show-all (admins), every
+  // person and their overall balance.
   const everyone = isShowAllUsers(user, allUsers);
-  const balanceOn = ledgerBalanceScope({
+  const [allowed, ownPersonId] = await Promise.all([
+    getAllowedSites(user),
+    everyone ? null : getOwnPersonId(user.id),
+  ]);
+  const scope: ScopeOptions = {
     siteId,
     user,
     everyone,
-    allowed: await getAllowedSites(user),
-  });
+    allowed,
+    mirror:
+      ownPersonId === null
+        ? undefined
+        : { personId: persons.id, counterpartId: persons.userId, ownPersonId },
+  };
+  // The mirror's condition includes the person; otherwise join on it.
+  const balanceOn = scope.mirror
+    ? ledgerBalanceScope(scope)
+    : and(eq(ledgerBalances.personId, persons.id), ledgerBalanceScope(scope));
 
   const term = query.trim().toLowerCase();
   const pattern = `%${escapeLike(term)}%`;
@@ -84,15 +103,12 @@ export async function getPersonsData(params: {
       mobile: persons.mobile,
       isActive: persons.isActive,
       type: personTypes.name,
-      credit: balanceCredit,
-      debit: balanceDebit,
+      credit: viewerBalanceCredit(scope),
+      debit: viewerBalanceDebit(scope),
     })
     .from(persons)
     .innerJoin(personTypes, eq(persons.personTypeId, personTypes.id))
-    .leftJoin(
-      ledgerBalances,
-      and(eq(ledgerBalances.personId, persons.id), balanceOn),
-    )
+    .leftJoin(ledgerBalances, balanceOn)
     .where(
       and(
         ptype ? eq(personTypes.name, ptype) : undefined,
@@ -137,24 +153,33 @@ type PassbookParams = {
 };
 
 async function passbookScope({
+  personId,
   scope,
   allUsers,
   filter,
   user,
 }: PassbookParams): Promise<ScopeOptions> {
-  return {
-    siteId: scope,
-    user,
-    everyone: isShowAllUsers(user, allUsers),
-    allowed: await getAllowedSites(user),
-    filter,
-  };
+  const everyone = isShowAllUsers(user, allUsers);
+  const [allowed, mirror] = await Promise.all([
+    getAllowedSites(user),
+    isOwnScope(user, everyone, filter)
+      ? getMirror(personId, user.id)
+      : undefined,
+  ]);
+  return { siteId: scope, user, everyone, allowed, filter, mirror };
 }
 
-async function passbookWhere(params: PassbookParams) {
+/** The person's rows, unless the scope's mirror condition already picks them. */
+const ofPerson = (
+  column: SQLiteColumn,
+  scope: ScopeOptions,
+  personId: number,
+) => (scope.mirror ? undefined : eq(column, personId));
+
+function passbookWhere(params: PassbookParams, scope: ScopeOptions) {
   return and(
-    eq(ledgerEntries.personId, params.personId),
-    ledgerScope(await passbookScope(params)),
+    ofPerson(ledgerEntries.personId, scope, params.personId),
+    ledgerScope(scope),
   );
 }
 
@@ -163,10 +188,12 @@ export async function getPassbookPage(
   params: PassbookParams & { cursor?: string | null },
 ) {
   const cursor = decodeCursor(params.cursor);
+  const scope = await passbookScope(params);
   const rows = await db
     .select({
       id: ledgerEntries.id,
-      type: ledgerEntries.type,
+      // A mirrored entry reads from the viewer's side.
+      type: viewerType(scope),
       amount: ledgerEntries.amount,
       date: ledgerEntries.date,
       siteId: ledgerEntries.siteId,
@@ -183,7 +210,7 @@ export async function getPassbookPage(
     .innerJoin(users, eq(ledgerEntries.createdBy, users.id))
     .where(
       and(
-        await passbookWhere(params),
+        passbookWhere(params, scope),
         afterCursor(ledgerEntries.date, ledgerEntries.id, cursor),
       ),
     )
@@ -219,26 +246,31 @@ async function passbookTotals(params: PassbookParams) {
       .limit(1);
     return row;
   }
+  const scope = await passbookScope(params);
   if (balancesCover(params.filter)) {
     const [row] = await db
       .select({
-        credit: balanceCredit,
-        debit: balanceDebit,
+        credit: viewerBalanceCredit(scope),
+        debit: viewerBalanceDebit(scope),
         count: balanceEntries,
       })
       .from(ledgerBalances)
       .where(
         and(
-          eq(ledgerBalances.personId, params.personId),
-          ledgerBalanceScope(await passbookScope(params)),
+          ofPerson(ledgerBalances.personId, scope, params.personId),
+          ledgerBalanceScope(scope),
         ),
       );
     return row;
   }
   const [row] = await db
-    .select({ credit: creditSum, debit: debitSum, count: countAll })
+    .select({
+      credit: viewerCreditSum(scope),
+      debit: viewerDebitSum(scope),
+      count: countAll,
+    })
     .from(ledgerEntries)
-    .where(await passbookWhere(params));
+    .where(passbookWhere(params, scope));
   return row;
 }
 
@@ -282,18 +314,48 @@ export async function getPassbookData(params: PassbookParams) {
 }
 
 /**
- * The sites a person has entries on (from site_membership), limited to the
- * sites the viewer may access — the passbook's site tabs.
+ * The sites a person has entries on (from site_membership), plus those of
+ * mirrored entries (their user's against the viewer's own person), limited
+ * to the sites the viewer may access — the passbook's site tabs.
  */
-export async function getPersonSites(personId: number, user: CurrentUser) {
-  const allowed = await getAllowedSites(user);
+export async function getPersonSites(
+  personId: number,
+  user: CurrentUser,
+  allUsers?: string,
+) {
+  const [allowed, mirror] = await Promise.all([
+    getAllowedSites(user),
+    isShowAllUsers(user, allUsers) ? undefined : getMirror(personId, user.id),
+  ]);
   return db
     .select({ id: sites.id, name: sites.name })
-    .from(siteMembership)
-    .innerJoin(sites, eq(siteMembership.siteId, sites.id))
+    .from(sites)
     .where(
       and(
-        eq(siteMembership.personId, personId),
+        or(
+          inArray(
+            sites.id,
+            db
+              .select({ id: siteMembership.siteId })
+              .from(siteMembership)
+              .where(eq(siteMembership.personId, personId)),
+          ),
+          mirror
+            ? inArray(
+                sites.id,
+                db
+                  .select({ id: ledgerBalances.siteId })
+                  .from(ledgerBalances)
+                  .where(
+                    and(
+                      eq(ledgerBalances.personId, mirror.ownPersonId),
+                      eq(ledgerBalances.userId, mirror.counterpartId),
+                      gt(ledgerBalances.entries, 0),
+                    ),
+                  ),
+              )
+            : undefined,
+        ),
         eq(sites.isActive, 1),
         siteAccessCondition(sites.id, allowed, false),
       ),
@@ -309,8 +371,9 @@ export async function getPassbookScope(
   personId: number,
   user: CurrentUser,
   requestedSiteId: number,
+  allUsers?: string,
 ) {
-  const sites = await getPersonSites(personId, user);
+  const sites = await getPersonSites(personId, user, allUsers);
   const scope = sites.some((s) => s.id === requestedSiteId)
     ? requestedSiteId
     : -1;

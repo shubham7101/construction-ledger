@@ -1,5 +1,6 @@
 import "server-only";
-import { and, asc, desc, eq, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { db } from "@/db";
 import {
   categories,
@@ -16,25 +17,30 @@ import type { CurrentUser } from "@/server/auth/jwt";
 import { isShowAllUsers } from "@/server/permissions";
 import { afterFeedCursor, decodeCursor, PAGE_SIZE, toPage } from "./pagination";
 import {
-  balanceCredit,
-  balanceDebit,
   balanceEntries,
   balanceExpense,
   balanceExpenses,
   balancesCover,
   countAll,
-  creditSum,
-  debitSum,
   escapeLike,
   expenseBalanceScope,
   expenseScope,
   expenseTotal,
   getAllowedSites,
+  getListMirror,
+  getOwnPersonId,
+  isOwnScope,
   ledgerBalanceScope,
   ledgerScope,
   type ParsedFilters,
   type ScopeOptions,
   siteAccessCondition,
+  viewerBalanceCredit,
+  viewerBalanceDebit,
+  viewerCreditSum,
+  viewerDebitSum,
+  viewerPersonId,
+  viewerType,
 } from "./shared";
 
 type FeedParams = {
@@ -45,13 +51,19 @@ type FeedParams = {
 };
 
 async function feedScope({ siteId, allUsers, filter, user }: FeedParams) {
-  const allowed = await getAllowedSites(user);
+  const everyone = isShowAllUsers(user, allUsers);
+  // Entries other users log against the viewer's own person are theirs too.
+  const [allowed, mirror] = await Promise.all([
+    getAllowedSites(user),
+    getListMirror(user, everyone, filter),
+  ]);
   const scope: ScopeOptions = {
     siteId,
     user,
-    everyone: isShowAllUsers(user, allUsers),
+    everyone,
     allowed,
     filter,
+    mirror,
   };
   const feedType = filter?.t;
   return {
@@ -73,17 +85,19 @@ export async function getFeedPage(
   params: FeedParams & { cursor?: string | null },
 ) {
   const cursor = decodeCursor(params.cursor);
-  const { ledgerWhere, expenseWhere, includeLedger, includeExpenses } =
+  const { scope, ledgerWhere, expenseWhere, includeLedger, includeExpenses } =
     await feedScope(params);
+  // A mirrored entry reads from the viewer's side.
+  const personId = viewerPersonId(scope);
 
   const [ledgerRows, expenseRows] = await Promise.all([
     includeLedger
       ? db
           .select({
             id: ledgerEntries.id,
-            personId: ledgerEntries.personId,
+            personId,
             personName: persons.name,
-            type: ledgerEntries.type,
+            type: viewerType(scope),
             amount: ledgerEntries.amount,
             date: ledgerEntries.date,
             siteName: sites.name,
@@ -91,7 +105,7 @@ export async function getFeedPage(
             createdBy: users.name,
           })
           .from(ledgerEntries)
-          .innerJoin(persons, eq(ledgerEntries.personId, persons.id))
+          .innerJoin(persons, eq(persons.id, personId))
           .leftJoin(sites, eq(ledgerEntries.siteId, sites.id))
           .innerJoin(categories, eq(ledgerEntries.categoryId, categories.id))
           .innerJoin(users, eq(ledgerEntries.createdBy, users.id))
@@ -229,14 +243,18 @@ export async function getSiteDetail(params: FeedParams) {
     fromBalances
       ? db
           .select({
-            credit: balanceCredit,
-            debit: balanceDebit,
+            credit: viewerBalanceCredit(scope),
+            debit: viewerBalanceDebit(scope),
             count: balanceEntries,
           })
           .from(ledgerBalances)
           .where(ledgerBalanceScope(scope))
       : db
-          .select({ credit: creditSum, debit: debitSum, count: countAll })
+          .select({
+            credit: viewerCreditSum(scope),
+            debit: viewerDebitSum(scope),
+            count: countAll,
+          })
           .from(ledgerEntries)
           .where(ledgerWhere),
     fromBalances
@@ -269,23 +287,62 @@ export async function getSiteDetail(params: FeedParams) {
 /**
  * The persons with entries on a site (site_membership), each with their net
  * balance there — over the user's own entries, or everyone's with show-all.
+ * Own entries include mirrored ones: a user who logged entries against the
+ * viewer's own person there is listed as their person.
  */
 export async function getSitePersons(params: FeedParams) {
   const { siteId, allUsers, filter, user } = params;
+  // dates and "logged by" apply; category / person filters are for the
+  // feed, not the roll-up
+  const rollUp = filter && {
+    dm: filter.dm,
+    d1: filter.d1,
+    d2: filter.d2,
+    createdBy: filter.createdBy,
+  };
+  const everyone = isShowAllUsers(user, allUsers);
+  const [allowed, ownPersonId] = await Promise.all([
+    getAllowedSites(user),
+    isOwnScope(user, everyone, rollUp) ? getOwnPersonId(user.id) : null,
+  ]);
   const scope: ScopeOptions = {
     siteId,
     user,
-    everyone: isShowAllUsers(user, allUsers),
-    allowed: await getAllowedSites(user),
-    // dates and "logged by" apply; category / person filters are for the
-    // feed, not the roll-up
-    filter: filter && {
-      dm: filter.dm,
-      d1: filter.d1,
-      d2: filter.d2,
-      createdBy: filter.createdBy,
-    },
+    everyone,
+    allowed,
+    filter: rollUp,
+    mirror:
+      ownPersonId === null
+        ? undefined
+        : { personId: persons.id, counterpartId: persons.userId, ownPersonId },
   };
+  // The mirror's condition includes the person; otherwise join on it.
+  const ofPerson = (column: SQLiteColumn) =>
+    scope.mirror ? undefined : eq(column, persons.id);
+  const onSite = or(
+    inArray(
+      persons.id,
+      db
+        .select({ id: siteMembership.personId })
+        .from(siteMembership)
+        .where(eq(siteMembership.siteId, siteId)),
+    ),
+    ownPersonId === null
+      ? undefined
+      : inArray(
+          persons.userId,
+          db
+            .select({ id: ledgerBalances.userId })
+            .from(ledgerBalances)
+            .where(
+              and(
+                eq(ledgerBalances.personId, ownPersonId),
+                eq(ledgerBalances.siteId, siteId),
+                gt(ledgerBalances.entries, 0),
+              ),
+            ),
+        ),
+  );
 
   // From ledger_balances unless a date filter needs the entries themselves.
   const rows = await (balancesCover(scope.filter)
@@ -293,33 +350,28 @@ export async function getSitePersons(params: FeedParams) {
         .select({
           id: persons.id,
           name: persons.name,
-          credit: balanceCredit,
-          debit: balanceDebit,
+          credit: viewerBalanceCredit(scope),
+          debit: viewerBalanceDebit(scope),
         })
-        .from(siteMembership)
-        .innerJoin(persons, eq(siteMembership.personId, persons.id))
+        .from(persons)
         .leftJoin(
           ledgerBalances,
-          and(
-            eq(ledgerBalances.personId, persons.id),
-            ledgerBalanceScope(scope),
-          ),
+          and(ofPerson(ledgerBalances.personId), ledgerBalanceScope(scope)),
         )
     : db
         .select({
           id: persons.id,
           name: persons.name,
-          credit: creditSum,
-          debit: debitSum,
+          credit: viewerCreditSum(scope),
+          debit: viewerDebitSum(scope),
         })
-        .from(siteMembership)
-        .innerJoin(persons, eq(siteMembership.personId, persons.id))
+        .from(persons)
         .leftJoin(
           ledgerEntries,
-          and(eq(ledgerEntries.personId, persons.id), ledgerScope(scope)),
+          and(ofPerson(ledgerEntries.personId), ledgerScope(scope)),
         )
   )
-    .where(eq(siteMembership.siteId, siteId))
+    .where(onSite)
     .groupBy(persons.id)
     .orderBy(asc(sql`lower(${persons.name})`));
 

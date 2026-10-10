@@ -84,12 +84,12 @@ export const LedgerDetailSheet: React.FC = () => {
       {!loading && detail && (
         <>
           <DetailHeader
-            tone={detail.type}
+            tone={(detail.mirrored ?? detail).type}
             amount={detail.amount}
-            title={detail.personName}
+            title={(detail.mirrored ?? detail).personName}
             subtitle={
               <Link
-                href={`/persons/${detail.personId}`}
+                href={`/persons/${(detail.mirrored ?? detail).personId}`}
                 className="text-xs font-bold text-amber-600 no-underline hover:text-amber-700"
               >
                 Open passbook →
